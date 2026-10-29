@@ -61,6 +61,7 @@
                 <Button android:id="@+id/btnToolText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Text" />
                 <Button android:id="@+id/btnToolLogo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Logo" />
                 <Button android:id="@+id/btnToolLayers" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Layers" />
+                <Button android:id="@+id/btnToolEdit" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Edit" />
                 <Button android:id="@+id/btnToolExport" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Export" />
             </LinearLayout>
         </HorizontalScrollView>
@@ -144,6 +145,8 @@
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="SHADOW STYLE" android:textStyle="bold" />
                     <CheckBox android:id="@+id/chkShadow" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Drop shadow" />
                     <Spinner android:id="@+id/spShadow" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Shadow move (offset)" />
+                    <SeekBar android:id="@+id/seekShadowMove" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="60" android:progress="0" />
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/panelResize" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
@@ -169,6 +172,9 @@
                     <Spinner android:id="@+id/spTextColor" android:layout_width="match_parent" android:layout_height="wrap_content" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Text size" />
                     <SeekBar android:id="@+id/seekTextSize" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="120" android:progress="48" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Letter spacing" />
+                    <SeekBar android:id="@+id/seekTextSpacing" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="50" android:progress="0" />
+                    <CheckBox android:id="@+id/chkTextBold" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Bold text" />
                     <Button android:id="@+id/btnAddText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Add / Update text object" />
                 </LinearLayout>
 
@@ -195,6 +201,62 @@
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
                         <Button android:id="@+id/btnLayerDelete" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Delete" />
                         <Button android:id="@+id/btnLayerHide" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Hide / Show" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btnUnlockAll" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Unlock all layers" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelEdit" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="EDIT SELECTED OBJECT" android:textStyle="bold" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Filter (approximation)" />
+                    <Spinner android:id="@+id/spFilter" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Blend mode (for layers)" />
+                    <Spinner android:id="@+id/spBlend" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Warmth" />
+                    <SeekBar android:id="@+id/seekWarmth" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200" android:progress="100" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Opacity" />
+                    <SeekBar android:id="@+id/seekOpacity" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="100" android:progress="100" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Blur type (then Apply blur)" />
+                    <Spinner android:id="@+id/spBlur" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnApplyBlur" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Apply blur" />
+                        <Button android:id="@+id/btnPosterize" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Posterize" />
+                    </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Sharpness amount" />
+                    <SeekBar android:id="@+id/seekSharp" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="100" android:progress="50" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnSharpen" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Sharpen" />
+                        <Button android:id="@+id/btnImproveLight" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Improve light" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnRotateCW" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Rotate +90" />
+                        <Button android:id="@+id/btnRotateCCW" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Rotate -90" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnAlignLeft" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Align left" />
+                        <Button android:id="@+id/btnAlignCenter" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Align centre" />
+                        <Button android:id="@+id/btnAlignRight" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Align right" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnAlignTop" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Align top" />
+                        <Button android:id="@+id/btnAlignMiddle" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Align middle" />
+                        <Button android:id="@+id/btnAlignBottom" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Align bottom" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnLock" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Lock object" />
+                        <Button android:id="@+id/btnReflection" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Reflection" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnOutline" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Outline" />
+                        <Button android:id="@+id/btnTile" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Tile 2x2" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btnCrop" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Crop (drag a rectangle on the photo)" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnReplaceGallery" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Replace from gallery" />
+                        <Button android:id="@+id/btnReplaceCamera" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Replace from camera" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnSaveTemplate" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Save as template" />
+                        <Button android:id="@+id/btnLoadTemplate" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Load saved template" />
                     </LinearLayout>
                 </LinearLayout>
 
