@@ -12,140 +12,212 @@
         android:textSize="16sp"
         android:textStyle="bold" />
 
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+        <Button android:id="@+id/btnTabHome" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Home" />
+        <Button android:id="@+id/btnTabEditor" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Editor" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/statusText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Pick a photo to start. Auto Remove works best on plain backgrounds."
+        android:text="Home: start a new project, or open the editor."
         android:textSize="13sp" />
 
-    <TextView
-        android:id="@+id/txtOriginalSize"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Original size: not loaded yet"
-        android:textSize="13sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/txtExportInfo"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Export size: not selected yet"
-        android:textSize="13sp"
-        android:textStyle="bold" />
-
-    <ImageView
-        android:id="@+id/preview"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:scaleType="fitCenter"
-        android:background="#DDDDDD"
-        android:contentDescription="Photo preview" />
-
-    <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:id="@+id/btnPick" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Pick photo" />
-                <Button android:id="@+id/btnCamera" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Camera" />
-            </LinearLayout>
-
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:id="@+id/btnAuto" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Auto Remove" />
-                <Button android:id="@+id/btnPickColor" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Tap BG colour" />
-            </LinearLayout>
-
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:id="@+id/btnErase" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Brush: Erase" />
-                <Button android:id="@+id/btnRestore" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Brush: Restore" />
-                <Button android:id="@+id/btnToggle" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Original / Cutout" />
-            </LinearLayout>
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Tolerance (auto remove)" />
-            <SeekBar android:id="@+id/seekTolerance" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="100" android:progress="35" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Brush size" />
-            <SeekBar android:id="@+id/seekBrush" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="80" android:progress="24" />
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Background" />
-            <Spinner android:id="@+id/spBgMode" android:layout_width="match_parent" android:layout_height="wrap_content" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Solid colour" />
-            <Spinner android:id="@+id/spSolid" android:layout_width="match_parent" android:layout_height="wrap_content" />
-            <CheckBox android:id="@+id/chkShadow" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Drop shadow" />
-
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:id="@+id/btnBgPhoto" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Pick BG photo" />
-                <Button android:id="@+id/btnLogo" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Pick logo" />
-            </LinearLayout>
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Brightness" />
-            <SeekBar android:id="@+id/seekBright" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200" android:progress="100" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Contrast" />
-            <SeekBar android:id="@+id/seekContrast" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200" android:progress="100" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Saturation" />
-            <SeekBar android:id="@+id/seekSaturation" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200" android:progress="100" />
-
-            <EditText android:id="@+id/editText" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Text overlay (drag it on the photo to move)" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Text colour" />
-            <Spinner android:id="@+id/spTextColor" android:layout_width="match_parent" android:layout_height="wrap_content" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Text size" />
-            <SeekBar android:id="@+id/seekTextSize" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="120" android:progress="48" />
-            <Button android:id="@+id/btnAddText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Add / Update text" />
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="SHADOW STYLE" android:textStyle="bold" />
-            <Spinner android:id="@+id/spShadow" android:layout_width="match_parent" android:layout_height="wrap_content" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="TEMPLATES (own templates)" android:textStyle="bold" />
-            <Spinner android:id="@+id/spTemplate" android:layout_width="match_parent" android:layout_height="wrap_content" />
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:id="@+id/btnFill" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Brush: Fill" />
-            </LinearLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Recolor (hue shift)" />
-            <SeekBar android:id="@+id/seekHue" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="360" android:progress="180" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="LOGO BUILDER (text logo, no AI)" android:textStyle="bold" />
-            <EditText android:id="@+id/editLogoText" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Logo text" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Logo colour" />
-            <Spinner android:id="@+id/spLogoColor" android:layout_width="match_parent" android:layout_height="wrap_content" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Logo shape" />
-            <Spinner android:id="@+id/spLogoShape" android:layout_width="match_parent" android:layout_height="wrap_content" />
-            <Button android:id="@+id/btnBuildLogo" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Build text logo" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MARKETPLACE SIZE" android:textStyle="bold" />
-            <Spinner android:id="@+id/spMarketplace" android:layout_width="match_parent" android:layout_height="wrap_content" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="LOCAL BRAND KIT (on this device only)" android:textStyle="bold" />
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:id="@+id/btnSaveBrand" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Save brand kit" />
-                <Button android:id="@+id/btnLoadBrand" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Load brand kit" />
-            </LinearLayout>
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="BATCH (same template, size and position for all)" android:textStyle="bold" />
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:id="@+id/btnPickBatch" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Pick batch photos" />
-                <Button android:id="@+id/btnBatchExport" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Export batch (PNG)" />
-            </LinearLayout>
-            <TextView android:id="@+id/txtBatchInfo" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Batch: no photos selected yet" android:textSize="13sp" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="SIZE SELECTION" android:textStyle="bold" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Aspect preset (shortcut to a pixel size)" />
-            <Spinner android:id="@+id/spAspect" android:layout_width="match_parent" android:layout_height="wrap_content" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Export size (pixel size is the export size)" />
-            <Spinner android:id="@+id/spExportSize" android:layout_width="match_parent" android:layout_height="wrap_content" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Custom size (px, max 8000 per side)" />
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <EditText android:id="@+id/editCustomW" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:hint="Width px" android:inputType="number" />
-                <EditText android:id="@+id/editCustomH" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:hint="Height px" android:inputType="number" />
-            </LinearLayout>
-            <TextView android:id="@+id/txtCustomMp" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Custom: enter width and height to see MP" android:textSize="13sp" />
-
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:id="@+id/btnExportPng" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Export PNG" />
-                <Button android:id="@+id/btnExportJpg" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Export JPG" />
-            </LinearLayout>
-            <TextView android:id="@+id/txtRecent" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Recent exports: none yet" android:textSize="13sp" />
-            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Exports go to Pictures/PhotoCut. Drag the logo or text on the photo to move it." android:textSize="12sp" />
+    <!-- HOME: tabs + your-content list (local exports only, no account, no cloud) -->
+    <LinearLayout android:id="@+id/homePanel" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="YOUR CONTENT (on this device only)" android:textStyle="bold" />
+        <TextView android:id="@+id/txtYourContent" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="No projects yet. Start a new project below." android:textSize="13sp" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+            <Button android:id="@+id/btnNewProject" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="New project (pick photo)" />
+            <Button android:id="@+id/btnCamera" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Camera" />
         </LinearLayout>
-    </ScrollView>
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Exports go to Pictures/PhotoCut. No account, no cloud, no subscription." android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- EDITOR: canvas on top, tool row below, tool panels under that -->
+    <LinearLayout android:id="@+id/editorPanel" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:visibility="gone">
+        <TextView android:id="@+id/txtOriginalSize" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Original size: not loaded yet" android:textSize="13sp" android:textStyle="bold" />
+        <TextView android:id="@+id/txtLiveSize" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Live size: no project yet" android:textSize="13sp" android:textStyle="bold" />
+        <TextView android:id="@+id/txtSelected" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Selected: none (tap an object to select it)" android:textSize="13sp" />
+        <TextView android:id="@+id/txtExportInfo" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Export size: not selected yet" android:textSize="13sp" />
+
+        <com.technoon.photocut.SceneView
+            android:id="@+id/sceneView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="#DDDDDD" />
+
+        <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content">
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal">
+                <Button android:id="@+id/btnToolBg" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Remove BG" />
+                <Button android:id="@+id/btnToolMask" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Mask" />
+                <Button android:id="@+id/btnToolInsert" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Insert" />
+                <Button android:id="@+id/btnToolTemplate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Template" />
+                <Button android:id="@+id/btnToolBackground" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Background" />
+                <Button android:id="@+id/btnToolShadow" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Shadow" />
+                <Button android:id="@+id/btnToolResize" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Resize" />
+                <Button android:id="@+id/btnToolText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Text" />
+                <Button android:id="@+id/btnToolLogo" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Logo" />
+                <Button android:id="@+id/btnToolLayers" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Layers" />
+                <Button android:id="@+id/btnToolExport" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Export" />
+            </LinearLayout>
+        </HorizontalScrollView>
+
+        <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="SELECTED OBJECT ADJUSTMENTS (selected object only)" android:textStyle="bold" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Brightness" />
+                <SeekBar android:id="@+id/seekBright" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200" android:progress="100" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Contrast" />
+                <SeekBar android:id="@+id/seekContrast" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200" android:progress="100" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Saturation" />
+                <SeekBar android:id="@+id/seekSaturation" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200" android:progress="100" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Whiteness" />
+                <SeekBar android:id="@+id/seekWhite" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="100" android:progress="0" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Blackness" />
+                <SeekBar android:id="@+id/seekBlack" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="100" android:progress="0" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Hue shift" />
+                <SeekBar android:id="@+id/seekHue" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="360" android:progress="180" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                    <Button android:id="@+id/btnObjBigger" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Object bigger" />
+                    <Button android:id="@+id/btnObjSmaller" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Object smaller" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelBg" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="REMOVE BACKGROUND (classical, no AI)" android:textStyle="bold" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnAuto" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Auto Remove" />
+                        <Button android:id="@+id/btnPickColor" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Tap BG colour" />
+                        <Button android:id="@+id/btnToggle" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Original / Cutout" />
+                    </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Tolerance (auto remove)" />
+                    <SeekBar android:id="@+id/seekTolerance" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="100" android:progress="35" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelMask" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="MASK EDITOR (manual background correction)" android:textStyle="bold" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnErase" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Brush: Erase" />
+                        <Button android:id="@+id/btnRestore" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Brush: Restore" />
+                        <Button android:id="@+id/btnFill" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Brush: Fill" />
+                    </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Brush size" />
+                    <SeekBar android:id="@+id/seekBrush" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="120" android:progress="24" />
+                    <TextView android:id="@+id/txtZoom" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Zoom: 100% (pinch or slider)" />
+                    <SeekBar android:id="@+id/seekZoom" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="300" android:progress="0" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelInsert" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="INSERT OBJECT (gallery only, then remove its background)" android:textStyle="bold" />
+                    <Button android:id="@+id/btnInsertPick" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Pick photo to insert" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnInsertAuto" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Insert: Auto Remove" />
+                        <Button android:id="@+id/btnInsertTap" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Insert: Tap colour" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnInsertErase" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Insert: Erase" />
+                        <Button android:id="@+id/btnInsertRestore" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Insert: Restore" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnInsertDone" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Place inserted object" />
+                        <Button android:id="@+id/btnInsertCancel" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Cancel insert" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelTemplate" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="TEMPLATES (own templates)" android:textStyle="bold" />
+                    <Spinner android:id="@+id/spTemplate" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelBackground" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="BACKGROUND" android:textStyle="bold" />
+                    <Spinner android:id="@+id/spBgMode" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Solid colour" />
+                    <Spinner android:id="@+id/spSolid" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                    <Button android:id="@+id/btnBgPhoto" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Pick BG photo" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelShadow" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="SHADOW STYLE" android:textStyle="bold" />
+                    <CheckBox android:id="@+id/chkShadow" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Drop shadow" />
+                    <Spinner android:id="@+id/spShadow" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelResize" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="RESIZE PROJECT (live: preview updates as you change size)" android:textStyle="bold" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Aspect preset (shortcut to a pixel size)" />
+                    <Spinner android:id="@+id/spAspect" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Export size (pixel size is the export size)" />
+                    <Spinner android:id="@+id/spExportSize" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Custom size (px, max 8000 per side)" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <EditText android:id="@+id/editCustomW" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:hint="Width px" android:inputType="number" />
+                        <EditText android:id="@+id/editCustomH" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:hint="Height px" android:inputType="number" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/txtCustomMp" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Custom: enter width and height to see MP" android:textSize="13sp" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="MARKETPLACE SIZE" android:textStyle="bold" />
+                    <Spinner android:id="@+id/spMarketplace" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelText" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="TEXT OBJECT" android:textStyle="bold" />
+                    <EditText android:id="@+id/editText" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Text overlay (tap it on the canvas to select, then drag)" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Text colour" />
+                    <Spinner android:id="@+id/spTextColor" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Text size" />
+                    <SeekBar android:id="@+id/seekTextSize" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="120" android:progress="48" />
+                    <Button android:id="@+id/btnAddText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Add / Update text object" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelLogo" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="LOGO BUILDER (text logo, no AI)" android:textStyle="bold" />
+                    <EditText android:id="@+id/editLogoText" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Logo text" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Logo colour" />
+                    <Spinner android:id="@+id/spLogoColor" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Logo shape" />
+                    <Spinner android:id="@+id/spLogoShape" android:layout_width="match_parent" android:layout_height="wrap_content" />
+                    <Button android:id="@+id/btnBuildLogo" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Build text logo object" />
+                    <Button android:id="@+id/btnLogo" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Pick logo image" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelLayers" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="LAYERS (top of list = on top of the canvas)" android:textStyle="bold" />
+                    <TextView android:id="@+id/txtLayers" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Layers: no objects yet" android:textSize="13sp" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnLayerUp" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Up" />
+                        <Button android:id="@+id/btnLayerDown" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Down" />
+                        <Button android:id="@+id/btnLayerFront" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Front" />
+                        <Button android:id="@+id/btnLayerBack" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Back" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnLayerDelete" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Delete" />
+                        <Button android:id="@+id/btnLayerHide" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Hide / Show" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/panelExport" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="EXPORT" android:textStyle="bold" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnExportPng" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Export PNG" />
+                        <Button android:id="@+id/btnExportJpg" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Export JPG" />
+                    </LinearLayout>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="LOCAL BRAND KIT (on this device only)" android:textStyle="bold" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnSaveBrand" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Save brand kit" />
+                        <Button android:id="@+id/btnLoadBrand" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Load brand kit" />
+                    </LinearLayout>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="BATCH (same template, size and position for all)" android:textStyle="bold" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnPickBatch" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Pick batch photos" />
+                        <Button android:id="@+id/btnBatchExport" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Export batch (PNG)" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/txtBatchInfo" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Batch: no photos selected yet" android:textSize="13sp" />
+                    <TextView android:id="@+id/txtRecent" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Recent exports: none yet" android:textSize="13sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </ScrollView>
+    </LinearLayout>
 </LinearLayout>
