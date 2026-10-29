@@ -1000,7 +1000,7 @@ class MainActivity : Activity(), SceneTouchListener {
                 val saveCount = canvas.save()
                 canvas.rotate(Math.toDegrees(angle.toDouble()).toFloat(), x, y)
                 canvas.drawText(ch, x, y, paint)
-                canvas.restore(saveCount)
+                canvas.restoreToCount(saveCount)
             }
             lineY += paint.textSize * 1.3f + lineSpacing
         }
