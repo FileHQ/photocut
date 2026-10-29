@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Original icon drawn for PhotoCut Offline only: green square, white cut band, two white rings. No copied logo. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#0E7C5B" android:pathData="M0,0h108v108H0z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M18,62 L90,40 L90,52 L18,74 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M28,28 a9,9 0 1,0 0.1,0 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M72,72 a9,9 0 1,0 0.1,0 Z" />
+</vector>
