@@ -73,6 +73,9 @@ class MainActivity : Activity(), SceneTouchListener {
     private lateinit var spMarketplace: Spinner
     private lateinit var spLogoColor: Spinner
     private lateinit var spLogoShape: Spinner
+    private lateinit var spFilter: Spinner
+    private lateinit var spBlend: Spinner
+    private lateinit var spBlur: Spinner
     private lateinit var editLogoText: EditText
     private lateinit var txtBatchInfo: TextView
     private lateinit var txtRecent: TextView
@@ -99,6 +102,14 @@ class MainActivity : Activity(), SceneTouchListener {
     private var textSizeProgress = 48
     private var shadowMode = 1
     private var shadowEnabled = false
+    private var shadowMove = 0f
+    private var pendingBlur = 0 // 0 none, 1 box, 2 gaussian, 3 pixel, 4 motion
+    private var cropMode = false
+    private var cropStartX = 0f
+    private var cropStartY = 0f
+    private var textSpacing = 0
+    private var textBold = false
+    private var sharpAmount = 50
     private var logoColor = Color.BLACK
     private var logoShape = 0
     private var templateInitDone = false
@@ -118,6 +129,8 @@ class MainActivity : Activity(), SceneTouchListener {
     private val reqLogo = 104
     private val reqBatch = 105
     private val reqInsert = 106
+    private val reqReplace = 107
+    private val reqReplaceCamera = 108
 
     private val presetW = intArrayOf(0, 1080, 1080, 1920, 2048, 3000, 4000, -1)
     private val presetH = intArrayOf(0, 1080, 1350, 1080, 2048, 3000, 3000, -1)
@@ -141,7 +154,7 @@ class MainActivity : Activity(), SceneTouchListener {
     private val panelIds = intArrayOf(
         R.id.panelBg, R.id.panelMask, R.id.panelInsert, R.id.panelTemplate,
         R.id.panelBackground, R.id.panelShadow, R.id.panelResize, R.id.panelText,
-        R.id.panelLogo, R.id.panelLayers, R.id.panelExport
+        R.id.panelLogo, R.id.panelLayers, R.id.panelExport, R.id.panelEdit
     )
 
     private fun selectedObj(): SceneObj? =
@@ -196,6 +209,9 @@ class MainActivity : Activity(), SceneTouchListener {
         spMarketplace = findViewById(R.id.spMarketplace)
         spLogoColor = findViewById(R.id.spLogoColor)
         spLogoShape = findViewById(R.id.spLogoShape)
+        spFilter = findViewById(R.id.spFilter)
+        spBlend = findViewById(R.id.spBlend)
+        spBlur = findViewById(R.id.spBlur)
         editLogoText = findViewById(R.id.editLogoText)
         txtBatchInfo = findViewById(R.id.txtBatchInfo)
         txtRecent = findViewById(R.id.txtRecent)
@@ -223,6 +239,7 @@ class MainActivity : Activity(), SceneTouchListener {
         findViewById<Button>(R.id.btnToolLogo).setOnClickListener { showPanel(R.id.panelLogo) }
         findViewById<Button>(R.id.btnToolLayers).setOnClickListener { updateLayersText(); showPanel(R.id.panelLayers) }
         findViewById<Button>(R.id.btnToolExport).setOnClickListener { showPanel(R.id.panelExport) }
+        findViewById<Button>(R.id.btnToolEdit).setOnClickListener { showPanel(R.id.panelEdit) }
 
         setupSpinner(spBgMode, arrayOf("Transparent", "Solid colour", "Gradient", "Blurred original", "Photo background", "White background", "Studio look", "Flat Lay")) { pos ->
             bgMode = pos; syncSceneBg(); updateLiveSize()
@@ -252,6 +269,15 @@ class MainActivity : Activity(), SceneTouchListener {
             applyMarketplace(pos)
         }
         setupSpinner(spLogoColor, textColorNames) { pos -> logoColor = textColors[pos] }
+        setupSpinner(spFilter, arrayOf("Filter: None", "Filter: Sepia", "Filter: Mono", "Filter: Noir", "Filter: Tonal", "Filter: Fade", "Filter: Chrome", "Filter: Process")) { pos ->
+            selectedObj()?.let { it.filter = pos; sceneView.invalidate(); updateLiveSize() }
+        }
+        setupSpinner(spBlend, arrayOf("Blend: Normal", "Blend: Multiply", "Blend: Screen", "Blend: Darken", "Blend: Lighten")) { pos ->
+            selectedObj()?.let { it.blendMode = pos; sceneView.invalidate(); updateLiveSize() }
+        }
+        setupSpinner(spBlur, arrayOf("Blur: None", "Blur: Box", "Blur: Gaussian", "Blur: Pixel", "Blur: Motion")) { pos ->
+            pendingBlur = pos
+        }
         setupSpinner(spLogoShape, arrayOf("Logo shape: None", "Logo shape: Circle", "Logo shape: Square")) { pos -> logoShape = pos }
 
         findViewById<Button>(R.id.btnAuto).setOnClickListener { autoRemoveOnSelected() }
@@ -299,6 +325,35 @@ class MainActivity : Activity(), SceneTouchListener {
         findViewById<Button>(R.id.btnLayerBack).setOnClickListener { moveLayerToEnd(false) }
         findViewById<Button>(R.id.btnLayerDelete).setOnClickListener { deleteSelected() }
         findViewById<Button>(R.id.btnLayerHide).setOnClickListener { toggleHideSelected() }
+        findViewById<Button>(R.id.btnUnlockAll).setOnClickListener { unlockAll() }
+
+        // Edit panel: filters, blur, rotate, align, lock, opacity, reflection,
+        // outline, tile, crop, replace, save-as-template, warmth, sharpness.
+        findViewById<Button>(R.id.btnApplyBlur).setOnClickListener { applyBlurToSelected() }
+        findViewById<Button>(R.id.btnPosterize).setOnClickListener { applyPosterizeToSelected() }
+        findViewById<Button>(R.id.btnSharpen).setOnClickListener { applySharpenToSelected() }
+        findViewById<Button>(R.id.btnImproveLight).setOnClickListener { improveLightSelected() }
+        findViewById<Button>(R.id.btnRotateCW).setOnClickListener { rotateSelected(90f) }
+        findViewById<Button>(R.id.btnRotateCCW).setOnClickListener { rotateSelected(-90f) }
+        findViewById<Button>(R.id.btnAlignLeft).setOnClickListener { alignSelected(0) }
+        findViewById<Button>(R.id.btnAlignCenter).setOnClickListener { alignSelected(1) }
+        findViewById<Button>(R.id.btnAlignRight).setOnClickListener { alignSelected(2) }
+        findViewById<Button>(R.id.btnAlignTop).setOnClickListener { alignSelected(3) }
+        findViewById<Button>(R.id.btnAlignMiddle).setOnClickListener { alignSelected(4) }
+        findViewById<Button>(R.id.btnAlignBottom).setOnClickListener { alignSelected(5) }
+        findViewById<Button>(R.id.btnLock).setOnClickListener { lockSelected() }
+        findViewById<Button>(R.id.btnReflection).setOnClickListener { addReflection() }
+        findViewById<Button>(R.id.btnOutline).setOnClickListener { addOutline() }
+        findViewById<Button>(R.id.btnTile).setOnClickListener { tileSelected() }
+        findViewById<Button>(R.id.btnCrop).setOnClickListener { startCropMode() }
+        findViewById<Button>(R.id.btnReplaceGallery).setOnClickListener { pickImage(reqReplace) }
+        findViewById<Button>(R.id.btnReplaceCamera).setOnClickListener {
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            if (intent.resolveActivity(packageManager) != null) startActivityForResult(intent, reqReplaceCamera)
+            else Toast.makeText(this, "No camera app found", Toast.LENGTH_SHORT).show()
+        }
+        findViewById<Button>(R.id.btnSaveTemplate).setOnClickListener { saveAsTemplate() }
+        findViewById<Button>(R.id.btnLoadTemplate).setOnClickListener { loadSavedTemplate() }
         findViewById<Button>(R.id.btnObjBigger).setOnClickListener { scaleSelected(1.15f) }
         findViewById<Button>(R.id.btnObjSmaller).setOnClickListener { scaleSelected(0.87f) }
 
@@ -315,7 +370,13 @@ class MainActivity : Activity(), SceneTouchListener {
         setSeekListener(R.id.seekWhite) { v -> selectedObj()?.let { it.white = v; sceneView.invalidate(); updateLiveSize() } }
         setSeekListener(R.id.seekBlack) { v -> selectedObj()?.let { it.black = v; sceneView.invalidate(); updateLiveSize() } }
         setSeekListener(R.id.seekHue) { v -> selectedObj()?.let { it.hue = v - 180; sceneView.invalidate(); updateLiveSize() } }
+        setSeekListener(R.id.seekWarmth) { v -> selectedObj()?.let { it.warmth = v - 100; sceneView.invalidate(); updateLiveSize() } }
+        setSeekListener(R.id.seekOpacity) { v -> selectedObj()?.let { it.opacity = v; sceneView.invalidate(); updateLiveSize() } }
+        setSeekListener(R.id.seekSharp) { sharpAmount = it }
+        setSeekListener(R.id.seekShadowMove) { v -> shadowMove = v.toFloat(); syncSceneBg() }
         setSeekListener(R.id.seekTextSize) { textSizeProgress = it }
+        setSeekListener(R.id.seekTextSpacing) { textSpacing = it }
+        findViewById<CheckBox>(R.id.chkTextBold).setOnCheckedChangeListener { _, checked -> textBold = checked }
 
         chkShadow.setOnCheckedChangeListener { _, checked -> shadowEnabled = checked; syncSceneBg() }
 
@@ -361,6 +422,7 @@ class MainActivity : Activity(), SceneTouchListener {
         sceneView.bgPhoto = bgPhoto
         sceneView.shadowEnabled = shadowEnabled
         sceneView.shadowMode = shadowMode
+        sceneView.shadowMove = shadowMove
         sceneView.invalidate()
     }
 
@@ -429,6 +491,15 @@ class MainActivity : Activity(), SceneTouchListener {
                         loadBitmapAsMain(bmp.copy(Bitmap.Config.ARGB_8888, true))
                         statusText.text = "Camera photo loaded (thumbnail from camera app)."
                     }
+                }
+                reqReplace -> {
+                    val uri = data.data ?: return
+                    val bmp = decodeScaled(uri, 1024) ?: return
+                    replaceSelectedBitmap(bmp)
+                }
+                reqReplaceCamera -> {
+                    val bmp = data.extras?.get("data") as? Bitmap
+                    if (bmp != null) replaceSelectedBitmap(bmp.copy(Bitmap.Config.ARGB_8888, true))
                 }
             }
         } catch (e: Exception) {
@@ -514,6 +585,10 @@ class MainActivity : Activity(), SceneTouchListener {
             findViewById<SeekBar>(R.id.seekWhite).progress = obj.white
             findViewById<SeekBar>(R.id.seekBlack).progress = obj.black
             findViewById<SeekBar>(R.id.seekHue).progress = obj.hue + 180
+            findViewById<SeekBar>(R.id.seekWarmth).progress = obj.warmth + 100
+            findViewById<SeekBar>(R.id.seekOpacity).progress = obj.opacity
+            spFilter.setSelection(obj.filter)
+            spBlend.setSelection(obj.blendMode)
             txtSelected.text = "Selected: " + obj.name + " (" + obj.kind + "), " +
                 obj.w().toInt() + "x" + obj.h().toInt() + " px on canvas"
         } else {
@@ -542,7 +617,7 @@ class MainActivity : Activity(), SceneTouchListener {
         for (i in sceneView.objects.indices.reversed()) {
             val o = sceneView.objects[i]
             val mark = if (o.id == sceneView.selectedId) " > " else "   "
-            val hidden = if (o.visible) "" else " (hidden)"
+            val hidden = (if (o.visible) "" else " (hidden)") + (if (o.locked) " (locked)" else "")
             lines.add(mark + o.name + " (" + o.kind + ")" + hidden)
         }
         txtLayers.text = "Layers (top first):\n" + lines.joinToString("\n")
@@ -597,6 +672,14 @@ class MainActivity : Activity(), SceneTouchListener {
     // transform, so brush strokes and drags land where the user sees them.
     override fun onSceneDown(cx: Float, cy: Float) {
         dragObjId = -1
+        if (cropMode) {
+            cropStartX = cx
+            cropStartY = cy
+            sceneView.cropMode = true
+            sceneView.cropRect = android.graphics.RectF(cx, cy, cx, cy)
+            sceneView.invalidate()
+            return
+        }
         if (sceneView.insertMode) {
             val ib = insertBitmap
             if (ib != null) {
@@ -645,6 +728,14 @@ class MainActivity : Activity(), SceneTouchListener {
     }
 
     override fun onSceneMove(cx: Float, cy: Float, dx: Float, dy: Float) {
+        if (cropMode) {
+            sceneView.cropRect = android.graphics.RectF(
+                min(cropStartX, cx), min(cropStartY, cy),
+                max(cropStartX, cx), max(cropStartY, cy)
+            )
+            sceneView.invalidate()
+            return
+        }
         if (sceneView.insertMode) {
             if (brushMode != 0 && insertBitmap != null) {
                 brushOnBitmap(insertBitmap!!, insertOrig!!, cx, cy, 1f)
@@ -673,6 +764,14 @@ class MainActivity : Activity(), SceneTouchListener {
     }
 
     override fun onSceneUp(cx: Float, cy: Float, moved: Boolean) {
+        if (cropMode) {
+            applyCrop()
+            cropMode = false
+            sceneView.cropMode = false
+            sceneView.cropRect = null
+            sceneView.invalidate()
+            return
+        }
         if (dragObjId >= 0) {
             dragObjId = -1
             updateLiveSize()
@@ -817,6 +916,8 @@ class MainActivity : Activity(), SceneTouchListener {
         paint.color = textColor
         paint.textSize = size * 0.16f * (textSizeProgress / 48f)
         paint.textAlign = Paint.Align.CENTER
+        paint.letterSpacing = textSpacing / 100f
+        paint.isFakeBoldText = textBold
         canvas.drawText(text, size / 2f, size / 2f, paint)
         if (existing != null) {
             existing.bitmap = bmp
@@ -1165,8 +1266,82 @@ class MainActivity : Activity(), SceneTouchListener {
             0f, 0f, 0f, 1f, 0f
         )))
         if (o.hue != 0) cm.postConcat(hueMatrix(o.hue.toFloat()))
+        if (o.warmth != 0) {
+            val w = o.warmth / 100f
+            cm.postConcat(ColorMatrix(floatArrayOf(
+                1f + w * 0.25f, 0f, 0f, 0f, 0f,
+                0f, 1f, 0f, 0f, 0f,
+                0f, 0f, 1f - w * 0.25f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            )))
+        }
+        if (o.filter != 0) cm.postConcat(filterMatrix(o.filter))
         p.colorFilter = ColorMatrixColorFilter(cm)
+        p.alpha = (o.opacity * 255 / 100).coerceIn(0, 255)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            p.blendMode = when (o.blendMode) {
+                1 -> android.graphics.BlendMode.MULTIPLY
+                2 -> android.graphics.BlendMode.SCREEN
+                3 -> android.graphics.BlendMode.DARKEN
+                4 -> android.graphics.BlendMode.LIGHTEN
+                else -> null
+            }
+        }
         return p
+    }
+
+    private fun filterMatrix(f: Int): ColorMatrix {
+        return when (f) {
+            1 -> ColorMatrix(floatArrayOf(
+                0.393f, 0.769f, 0.189f, 0f, 0f,
+                0.349f, 0.686f, 0.168f, 0f, 0f,
+                0.272f, 0.534f, 0.131f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            2 -> ColorMatrix().apply { setSaturation(0f) }
+            3 -> {
+                val m = ColorMatrix().apply { setSaturation(0f) }
+                m.postConcat(ColorMatrix(floatArrayOf(
+                    1.3f, 0f, 0f, 0f, -38f,
+                    0f, 1.3f, 0f, 0f, -38f,
+                    0f, 0f, 1.3f, 0f, -38f,
+                    0f, 0f, 0f, 1f, 0f
+                )))
+                m
+            }
+            4 -> ColorMatrix(floatArrayOf(
+                1.15f, 0f, 0f, 0f, 0f,
+                0f, 1.1f, 0f, 0f, 0f,
+                0f, 0f, 0.95f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            5 -> ColorMatrix(floatArrayOf(
+                0.85f, 0f, 0f, 0f, 25f,
+                0f, 0.85f, 0f, 0f, 25f,
+                0f, 0f, 0.85f, 0f, 25f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            6 -> {
+                val m = ColorMatrix().apply { setSaturation(1.4f) }
+                m.postConcat(ColorMatrix(floatArrayOf(
+                    1.25f, 0f, 0f, 0f, -32f,
+                    0f, 1.25f, 0f, 0f, -32f,
+                    0f, 0f, 1.25f, 0f, -32f,
+                    0f, 0f, 0f, 1f, 0f
+                )))
+                m
+            }
+            else -> {
+                val m = ColorMatrix().apply { setSaturation(1.2f) }
+                m.postConcat(ColorMatrix(floatArrayOf(
+                    1.2f, 0f, 0f, 0f, 0f,
+                    0f, 1.1f, 0f, 0f, 0f,
+                    0f, 0f, 0.95f, 0f, 0f,
+                    0f, 0f, 0f, 1f, 0f
+                )))
+                m
+            }
+        }
     }
 
     private fun blurBitmap(src: Bitmap, factor: Int): Bitmap {
@@ -1234,8 +1409,8 @@ class MainActivity : Activity(), SceneTouchListener {
                 val shadow = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                 shadow.setPixels(spixels, 0, w, 0, 0, w, h)
                 val factor = when (shadowMode) { 2 -> 8; 3 -> 16; else -> 32 }
-                val offX = when (shadowMode) { 2 -> 8f; 3 -> 16f; else -> 12f }
-                val offY = when (shadowMode) { 2 -> 12f; 3 -> 28f; else -> 18f }
+                val offX = when (shadowMode) { 2 -> 8f; 3 -> 16f; else -> 12f } + shadowMove
+                val offY = when (shadowMode) { 2 -> 12f; 3 -> 28f; else -> 18f } + shadowMove
                 val blurred = blurBitmap(shadow, factor)
                 val scaledShadow = Bitmap.createScaledBitmap(blurred, max(1, (o.w() * sx).toInt()), max(1, (o.h() * sy).toInt()), true)
                 canvas.drawBitmap(scaledShadow, (o.x + offX) * sx, (o.y + offY) * sy, null)
@@ -1322,5 +1497,319 @@ class MainActivity : Activity(), SceneTouchListener {
         txtBatchInfo.text = "Batch: exported " + done + " of " + batchUris.size + " photo(s) to Pictures/PhotoCut."
         statusText.text = "Batch done: " + done + " of " + batchUris.size + " exported."
         updateLiveSize()
+    }
+
+    // ---- Edit panel: filters, blur, rotate, align, lock, opacity, reflection,
+    // outline, tile, crop, replace, save-as-template, warmth, sharpness ----
+
+    private fun requireSelected(): SceneObj? {
+        val obj = selectedObj()
+        if (obj == null) Toast.makeText(this, "Select an object first", Toast.LENGTH_SHORT).show()
+        return obj
+    }
+
+    private fun applyBlurToSelected() {
+        val obj = requireSelected() ?: return
+        if (pendingBlur == 0) {
+            Toast.makeText(this, "Pick a blur type first", Toast.LENGTH_SHORT).show(); return
+        }
+        val src = obj.bitmap
+        val out = when (pendingBlur) {
+            1 -> blurBitmap(src, 8) // box blur (downscale/upscale average)
+            2 -> { // gaussian approximation: repeated box blurs
+                var b = blurBitmap(src, 12)
+                b = blurBitmap(b, 12)
+                blurBitmap(b, 12)
+            }
+            3 -> { // pixel (mosaic): down then up with no filtering
+                val small = Bitmap.createScaledBitmap(src, max(1, src.width / 12), max(1, src.height / 12), false)
+                Bitmap.createScaledBitmap(small, src.width, src.height, false)
+            }
+            else -> { // motion approximation: horizontal average, radius 6, step 2
+                val w = src.width; val h = src.height
+                val pixels = IntArray(w * h)
+                src.getPixels(pixels, 0, w, 0, 0, w, h)
+                val result = IntArray(w * h)
+                for (y in 0 until h) {
+                    for (x in 0 until w) {
+                        var sr = 0; var sg = 0; var sb = 0; var sa = 0; var n = 0
+                        var dx = -6
+                        while (dx <= 6) {
+                            val nx = (x + dx).coerceIn(0, w - 1)
+                            val c = pixels[y * w + nx]
+                            sr += Color.red(c); sg += Color.green(c); sb += Color.blue(c); sa += Color.alpha(c); n++
+                            dx += 2
+                        }
+                        result[y * w + x] = (sa / n shl 24) or (sr / n shl 16) or (sg / n shl 8) or (sb / n)
+                    }
+                }
+                val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                bmp.setPixels(result, 0, w, 0, 0, w, h)
+                bmp
+            }
+        }
+        obj.bitmap = out
+        sceneView.invalidate()
+        statusText.text = "Blur applied to the selected object."
+    }
+
+    private fun applyPosterizeToSelected() {
+        val obj = requireSelected() ?: return
+        val src = obj.bitmap
+        val w = src.width; val h = src.height
+        val pixels = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val r = (Color.red(c) / 64) * 85
+            val g = (Color.green(c) / 64) * 85
+            val b = (Color.blue(c) / 64) * 85
+            pixels[i] = (Color.alpha(c) shl 24) or (r shl 16) or (g shl 8) or b
+        }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(pixels, 0, w, 0, 0, w, h)
+        obj.bitmap = out
+        sceneView.invalidate()
+        statusText.text = "Posterize applied (4 colour levels, approximation)."
+    }
+
+    private fun applySharpenToSelected() {
+        val obj = requireSelected() ?: return
+        val src = obj.bitmap
+        val blurred = blurBitmap(src, 8)
+        val w = src.width; val h = src.height
+        val orig = IntArray(w * h)
+        val blur = IntArray(w * h)
+        src.getPixels(orig, 0, w, 0, 0, w, h)
+        blurred.getPixels(blur, 0, w, 0, 0, w, h)
+        val amount = sharpAmount / 50f
+        val result = IntArray(w * h)
+        for (i in orig.indices) {
+            val r = (Color.red(orig[i]) + (Color.red(orig[i]) - Color.red(blur[i])) * amount).toInt().coerceIn(0, 255)
+            val g = (Color.green(orig[i]) + (Color.green(orig[i]) - Color.green(blur[i])) * amount).toInt().coerceIn(0, 255)
+            val b = (Color.blue(orig[i]) + (Color.blue(orig[i]) - Color.blue(blur[i])) * amount).toInt().coerceIn(0, 255)
+            result[i] = (Color.alpha(orig[i]) shl 24) or (r shl 16) or (g shl 8) or b
+        }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(result, 0, w, 0, 0, w, h)
+        obj.bitmap = out
+        sceneView.invalidate()
+        statusText.text = "Sharpness applied (unsharp-mask approximation)."
+    }
+
+    private fun improveLightSelected() {
+        val obj = requireSelected() ?: return
+        obj.bright = min(200, obj.bright + 15)
+        obj.contrast = min(200, obj.contrast + 5)
+        obj.white = min(100, obj.white + 10)
+        select(obj.id)
+        statusText.text = "Improve light applied to the selected object (approximation)."
+    }
+
+    private fun rotateSelected(degrees: Float) {
+        val obj = requireSelected() ?: return
+        val matrix = android.graphics.Matrix()
+        matrix.postRotate(degrees)
+        val rotated = Bitmap.createBitmap(obj.bitmap, 0, 0, obj.bitmap.width, obj.bitmap.height, matrix, true)
+        val rotatedOrig = Bitmap.createBitmap(obj.orig, 0, 0, obj.orig.width, obj.orig.height, matrix, true)
+        obj.bitmap = rotated
+        obj.orig = rotatedOrig
+        sceneView.invalidate()
+        updateLiveSize()
+        statusText.text = "Object rotated by " + degrees.toInt() + " degrees."
+    }
+
+    private fun alignSelected(mode: Int) {
+        val obj = requireSelected() ?: return
+        val cw = sceneView.canvasW.toFloat()
+        val ch = sceneView.canvasH.toFloat()
+        when (mode) {
+            0 -> obj.x = 0f
+            1 -> obj.x = (cw - obj.w()) / 2f
+            2 -> obj.x = cw - obj.w()
+            3 -> obj.y = 0f
+            4 -> obj.y = (ch - obj.h()) / 2f
+            5 -> obj.y = ch - obj.h()
+        }
+        sceneView.invalidate()
+        updateLiveSize()
+        statusText.text = "Object aligned."
+    }
+
+    private fun lockSelected() {
+        val obj = requireSelected() ?: return
+        obj.locked = true
+        select(-1)
+        updateLayersText()
+        statusText.text = "Object locked. Use Unlock all in Layers to unlock it."
+    }
+
+    private fun unlockAll() {
+        for (o in sceneView.objects) o.locked = false
+        sceneView.invalidate()
+        updateLayersText()
+        statusText.text = "All objects unlocked."
+    }
+
+    private fun addReflection() {
+        val obj = requireSelected() ?: return
+        val src = obj.bitmap
+        val matrix = android.graphics.Matrix()
+        matrix.postScale(1f, -1f)
+        val flipped = Bitmap.createBitmap(src, 0, 0, src.width, src.height, matrix, true)
+        // Fade the reflection from ~50% alpha at the top to 0 at the bottom.
+        val w = flipped.width; val h = flipped.height
+        val pixels = IntArray(w * h)
+        flipped.getPixels(pixels, 0, w, 0, 0, w, h)
+        for (y in 0 until h) {
+            val fade = ((1f - y.toFloat() / max(1, h)) * 128).toInt()
+            for (x in 0 until w) {
+                val i = y * w + x
+                val a = (Color.alpha(pixels[i]) * fade / 255)
+                pixels[i] = (a shl 24) or (pixels[i] and 0x00FFFFFF)
+            }
+        }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(pixels, 0, w, 0, 0, w, h)
+        val refl = SceneObj(nextObjId++, "REFLECTION", "Reflection of " + obj.name, out, out.copy(Bitmap.Config.ARGB_8888, true))
+        refl.x = obj.x
+        refl.y = obj.y + obj.h()
+        refl.scale = obj.scale
+        sceneView.objects.add(refl)
+        select(refl.id)
+        statusText.text = "Reflection added below the selected object (simple flipped faded copy)."
+    }
+
+    private fun addOutline() {
+        val obj = requireSelected() ?: return
+        val src = obj.bitmap
+        val w = src.width; val h = src.height
+        val pixels = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        for (i in pixels.indices) {
+            val a = Color.alpha(pixels[i])
+            pixels[i] = (a shl 24) or (solidColor and 0x00FFFFFF)
+        }
+        val silhouette = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        silhouette.setPixels(pixels, 0, w, 0, 0, w, h)
+        val outline = SceneObj(nextObjId++, "OUTLINE", "Outline of " + obj.name, silhouette, silhouette.copy(Bitmap.Config.ARGB_8888, true))
+        outline.x = obj.x - obj.w() * 0.04f
+        outline.y = obj.y - obj.h() * 0.04f
+        outline.scale = obj.scale * 1.08f
+        // Insert directly behind the selected object in layer order.
+        val idx = sceneView.objects.indexOf(obj)
+        if (idx >= 0) sceneView.objects.add(idx, outline) else sceneView.objects.add(outline)
+        select(obj.id)
+        statusText.text = "Outline added behind the selected object (silhouette approximation)."
+    }
+
+    private fun tileSelected() {
+        val obj = requireSelected() ?: return
+        val cw = sceneView.canvasW.toFloat()
+        val ch = sceneView.canvasH.toFloat()
+        val tileW = cw / 2f
+        val tileH = ch / 2f
+        val scaleX = tileW / max(1, obj.bitmap.width)
+        val scaleY = tileH / max(1, obj.bitmap.height)
+        val s = min(scaleX, scaleY)
+        val positions = arrayOf(Pair(0f, 0f), Pair(tileW, 0f), Pair(0f, tileH), Pair(tileW, tileH))
+        obj.scale = s
+        obj.x = positions[0].first
+        obj.y = positions[0].second
+        for (k in 1 until positions.size) {
+            val copy = SceneObj(nextObjId++, obj.kind, obj.name + " tile " + (k + 1), obj.bitmap.copy(Bitmap.Config.ARGB_8888, true), obj.orig.copy(Bitmap.Config.ARGB_8888, true))
+            copy.scale = s
+            copy.x = positions[k].first
+            copy.y = positions[k].second
+            copy.bright = obj.bright; copy.contrast = obj.contrast; copy.saturation = obj.saturation
+            copy.filter = obj.filter; copy.opacity = obj.opacity
+            sceneView.objects.add(copy)
+        }
+        select(obj.id)
+        statusText.text = "Object tiled into a 2x2 grid (approximation)."
+    }
+
+    private fun startCropMode() {
+        val obj = selectedObj()
+        if (obj == null || (obj.kind != "MAIN" && obj.kind != "INSERTED")) {
+            Toast.makeText(this, "Select a photo object first, then drag on it to crop", Toast.LENGTH_SHORT).show()
+            return
+        }
+        cropMode = true
+        statusText.text = "Crop: drag on the photo to draw the crop rectangle, then release."
+    }
+
+    private fun applyCrop() {
+        val rect = sceneView.cropRect ?: return
+        val obj = selectedObj() ?: return
+        if (rect.width() < 20f || rect.height() < 20f) {
+            statusText.text = "Crop cancelled: rectangle too small."
+            return
+        }
+        val lx = ((rect.left - obj.x) / obj.scale).toInt().coerceIn(0, obj.bitmap.width - 1)
+        val ly = ((rect.top - obj.y) / obj.scale).toInt().coerceIn(0, obj.bitmap.height - 1)
+        val rw = ((rect.width() / obj.scale).toInt()).coerceIn(1, obj.bitmap.width - lx)
+        val rh = ((rect.height() / obj.scale).toInt()).coerceIn(1, obj.bitmap.height - ly)
+        obj.bitmap = Bitmap.createBitmap(obj.bitmap, lx, ly, rw, rh)
+        obj.orig = Bitmap.createBitmap(obj.orig, lx, ly, rw, rh)
+        obj.x = rect.left
+        obj.y = rect.top
+        sceneView.invalidate()
+        updateLiveSize()
+        statusText.text = "Cropped to " + rw + "x" + rh + " px."
+    }
+
+    private fun replaceSelectedBitmap(bmp: Bitmap) {
+        val obj = selectedObj()
+        if (obj == null) {
+            Toast.makeText(this, "Select an object first, then replace it", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val oldW = obj.w()
+        val oldH = obj.h()
+        val copy = bmp.copy(Bitmap.Config.ARGB_8888, true)
+        obj.orig = copy.copy(Bitmap.Config.ARGB_8888, true)
+        obj.bitmap = copy
+        obj.scale = min(oldW / max(1, copy.width), oldH / max(1, copy.height))
+        if (obj.scale <= 0f) obj.scale = 1f
+        sceneView.invalidate()
+        updateLiveSize()
+        statusText.text = "Object replaced from " + (if (obj.kind == "MAIN") "the new image" else "gallery/camera") + ". Adjustments and layers kept."
+    }
+
+    private fun saveAsTemplate() {
+        val prefs = getSharedPreferences("photocut", MODE_PRIVATE)
+        prefs.edit()
+            .putInt("savedBgMode", bgMode)
+            .putInt("savedSolid", solidColor)
+            .putInt("savedShadow", shadowMode)
+            .putBoolean("savedShadowOn", shadowEnabled)
+            .putInt("savedExportW", exportW)
+            .putInt("savedExportH", exportH)
+            .apply()
+        statusText.text = "Current look saved as a template on this device (background, shadow, size)."
+        Toast.makeText(this, "Template saved", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun loadSavedTemplate() {
+        val prefs = getSharedPreferences("photocut", MODE_PRIVATE)
+        if (!prefs.contains("savedBgMode")) {
+            statusText.text = "No saved template yet. Save one first."
+            return
+        }
+        bgMode = prefs.getInt("savedBgMode", 0)
+        solidColor = prefs.getInt("savedSolid", Color.WHITE)
+        shadowMode = prefs.getInt("savedShadow", 1)
+        shadowEnabled = prefs.getBoolean("savedShadowOn", false)
+        exportW = prefs.getInt("savedExportW", exportW)
+        exportH = prefs.getInt("savedExportH", exportH)
+        updatingSpinners = true
+        spBgMode.setSelection(bgMode)
+        spShadow.setSelection(shadowMode)
+        updatingSpinners = false
+        chkShadow.isChecked = shadowEnabled
+        syncSceneBg()
+        updateExportInfo()
+        statusText.text = "Saved template applied."
     }
 }
