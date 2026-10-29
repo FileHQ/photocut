@@ -167,13 +167,15 @@
 
                 <LinearLayout android:id="@+id/panelText" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="TEXT OBJECT" android:textStyle="bold" />
-                    <EditText android:id="@+id/editText" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Text overlay (tap it on the canvas to select, then drag)" />
+                    <EditText android:id="@+id/editText" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Text overlay, multi-line: use Enter for a new line (tap it on the canvas to select, then drag)" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Text colour" />
                     <Spinner android:id="@+id/spTextColor" android:layout_width="match_parent" android:layout_height="wrap_content" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Text size" />
                     <SeekBar android:id="@+id/seekTextSize" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="120" android:progress="48" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Letter spacing" />
                     <SeekBar android:id="@+id/seekTextSpacing" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="50" android:progress="0" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Line spacing (multi-line text)" />
+                    <SeekBar android:id="@+id/seekLineSpacing" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="60" android:progress="10" />
                     <CheckBox android:id="@+id/chkTextBold" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Bold text" />
                     <Button android:id="@+id/btnAddText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Add / Update text object" />
                 </LinearLayout>
@@ -221,6 +223,17 @@
                         <Button android:id="@+id/btnApplyBlur" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Apply blur" />
                         <Button android:id="@+id/btnPosterize" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Posterize" />
                     </LinearLayout>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Curve amount (0 = bend one way, 50 = straight, 100 = bend the other way)" />
+                    <SeekBar android:id="@+id/seekCurve" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="100" android:progress="50" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnCurve" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Curve (text arc / photo bend)" />
+                        <Button android:id="@+id/btnPerspH" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Perspective H" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                        <Button android:id="@+id/btnPerspV" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Perspective V" />
+                        <Button android:id="@+id/btnHalftone" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Halftone" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btnLineScreen" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Line screen" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Sharpness amount" />
                     <SeekBar android:id="@+id/seekSharp" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="100" android:progress="50" />
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
@@ -272,6 +285,8 @@
                         <Button android:id="@+id/btnLoadBrand" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Load brand kit" />
                     </LinearLayout>
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="BATCH (same template, size and position for all)" android:textStyle="bold" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Batch resize mode (Fit = v3 behaviour, Fill = cover + centre crop, Expand = fit + pad)" />
+                    <Spinner android:id="@+id/spBatchResize" android:layout_width="match_parent" android:layout_height="wrap_content" />
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
                         <Button android:id="@+id/btnPickBatch" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Pick batch photos" />
                         <Button android:id="@+id/btnBatchExport" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Export batch (PNG)" />
