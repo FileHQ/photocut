@@ -18,14 +18,12 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.text.Editable
 import android.text.TextWatcher
-import android.view.MotionEvent
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
-import android.widget.ImageView
 import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
@@ -37,19 +35,29 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * PhotoCut Offline - clean-room, fully offline photo editor.
- * No AI, no ML model, no network code, no INTERNET permission.
+ * PhotoCut Offline v3 - clean-room, fully offline photo editor.
+ * No AI, no ML model, no network code, no INTERNET permission, no account.
+ * Structure (own design, from the functional inventory in recon-apktool.md):
+ * Home (tabs + local your-content list) -> Editor (canvas on top, tool row
+ * below: Remove BG, Mask, Insert, Template, Background, Shadow, Resize,
+ * Text, Logo, Layers, Export) -> Export/Resize (presets, custom size, MP).
  * Automatic background removal is classical only: border colour sampling
- * plus flood-fill by colour distance, with brush erase/restore for fixes.
- * MP is calculated from pixels (width * height / 1,000,000), not read
- * from camera metadata.
+ * plus flood-fill by colour distance, with brush erase/restore/fill fixes.
+ * MP = width * height / 1,000,000.
+ * OUT: AI generation/backgrounds/shadows/retouch/fill/expand/upscale,
+ * on-model fashion, video generation, shop sync, subscriptions, team,
+ * login, notifications, ads/analytics.
  */
-class MainActivity : Activity() {
+class MainActivity : Activity(), SceneTouchListener {
 
-    private lateinit var preview: ImageView
+    private lateinit var sceneView: SceneView
     private lateinit var statusText: TextView
     private lateinit var txtOriginalSize: TextView
     private lateinit var txtExportInfo: TextView
+    private lateinit var txtLiveSize: TextView
+    private lateinit var txtSelected: TextView
+    private lateinit var txtLayers: TextView
+    private lateinit var txtZoom: TextView
     private lateinit var txtCustomMp: TextView
     private lateinit var editCustomW: EditText
     private lateinit var editCustomH: EditText
@@ -68,64 +76,54 @@ class MainActivity : Activity() {
     private lateinit var editLogoText: EditText
     private lateinit var txtBatchInfo: TextView
     private lateinit var txtRecent: TextView
+    private lateinit var txtYourContent: TextView
+    private lateinit var homePanel: View
+    private lateinit var editorPanel: View
 
-    private var workBitmap: Bitmap? = null
-    private var maskedBitmap: Bitmap? = null
+    private var origBitmap: Bitmap? = null
     private var bgPhoto: Bitmap? = null
-    private var logoBitmap: Bitmap? = null
-    private var maskAlpha: IntArray? = null
-
+    private var insertOrig: Bitmap? = null
+    private var insertBitmap: Bitmap? = null
+    private var insertTapMode = false
+    private var nextObjId = 1
     private var originalW = 0
     private var originalH = 0
     private var showOriginal = false
-    private var brushMode = 0 // 0 none, 1 erase, 2 restore
+    private var brushMode = 0 // 0 none, 1 erase, 2 restore, 3 fill
     private var pickColorMode = false
     private var tolerance = 35
     private var brushRadius = 24
-    private var bright = 100
-    private var contrast = 100
-    private var saturation = 100
-    private var bgMode = 0 // 0 transparent, 1 solid, 2 gradient, 3 blurred, 4 photo
+    private var bgMode = 0
     private var solidColor = Color.WHITE
     private var textColor = Color.BLACK
     private var textSizeProgress = 48
-    private var overlayText = ""
-    private var textX = 0.5f
-    private var textY = 0.85f
-    private var logoX = 0.5f
-    private var logoY = 0.15f
-    private var dragWhat = 0 // 0 none, 1 text, 2 logo
-    private var exportPresetIndex = 0
-    private var shadowMode = 1 // 0 none, 1 soft, 2 hard, 3 floating
-    private var hueShift = 0 // degrees, -180..180
+    private var shadowMode = 1
+    private var shadowEnabled = false
+    private var logoColor = Color.BLACK
+    private var logoShape = 0
     private var templateInitDone = false
     private var marketplaceInitDone = false
-    private var logoText = ""
-    private var logoColor = Color.BLACK
-    private var logoShape = 0 // 0 none, 1 circle, 2 square
-    private val batchUris = mutableListOf<android.net.Uri>()
+    private var updatingSpinners = false
+    private var dragObjId = -1
+    private val batchUris = mutableListOf<Uri>()
     private val recentExports = mutableListOf<String>()
-    private val reqBatch = 105
     private var customW = 0
     private var customH = 0
-    private var updatingSpinners = false
+    private var exportW = 1024
+    private var exportH = 1024
 
     private val reqPick = 101
     private val reqCamera = 102
     private val reqBg = 103
     private val reqLogo = 104
+    private val reqBatch = 105
+    private val reqInsert = 106
 
     private val presetW = intArrayOf(0, 1080, 1080, 1920, 2048, 3000, 4000, -1)
     private val presetH = intArrayOf(0, 1080, 1350, 1080, 2048, 3000, 3000, -1)
     private val presetLabels = arrayOf(
-        "Original",
-        "1080x1080 (1.2 MP)",
-        "1080x1350 (1.5 MP)",
-        "1920x1080 (2.1 MP)",
-        "2048x2048 (4.2 MP)",
-        "3000x3000 (9.0 MP)",
-        "4000x3000 (12.0 MP)",
-        "Custom..."
+        "Original", "1080x1080 (1.2 MP)", "1080x1350 (1.5 MP)", "1920x1080 (2.1 MP)",
+        "2048x2048 (4.2 MP)", "3000x3000 (9.0 MP)", "4000x3000 (12.0 MP)", "Custom..."
     )
     private val solidNames = arrayOf("White", "Black", "Light grey", "Green", "Blue", "Red", "Yellow", "Pink")
     private val solidColors = intArrayOf(
@@ -140,15 +138,49 @@ class MainActivity : Activity() {
         Color.parseColor("#2E7D32"), Color.parseColor("#1565C0"),
         Color.parseColor("#F9A825")
     )
+    private val panelIds = intArrayOf(
+        R.id.panelBg, R.id.panelMask, R.id.panelInsert, R.id.panelTemplate,
+        R.id.panelBackground, R.id.panelShadow, R.id.panelResize, R.id.panelText,
+        R.id.panelLogo, R.id.panelLayers, R.id.panelExport
+    )
+
+    private fun selectedObj(): SceneObj? =
+        sceneView.objects.firstOrNull { it.id == sceneView.selectedId }
+
+    private fun showPanel(id: Int) {
+        for (pid in panelIds) findViewById<View>(pid).visibility = if (pid == id) View.VISIBLE else View.GONE
+    }
+
+    private fun showHome() {
+        homePanel.visibility = View.VISIBLE
+        editorPanel.visibility = View.GONE
+        updateYourContent()
+    }
+
+    private fun showEditor() {
+        if (origBitmap == null) {
+            statusText.text = "Pick a photo first to open the editor."
+            Toast.makeText(this, "Pick a photo first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        homePanel.visibility = View.GONE
+        editorPanel.visibility = View.VISIBLE
+        sceneView.invalidate()
+        updateLiveSize()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
-        preview = findViewById(R.id.preview)
+        sceneView = findViewById(R.id.sceneView)
+        sceneView.touchListener = this
         statusText = findViewById(R.id.statusText)
         txtOriginalSize = findViewById(R.id.txtOriginalSize)
         txtExportInfo = findViewById(R.id.txtExportInfo)
+        txtLiveSize = findViewById(R.id.txtLiveSize)
+        txtSelected = findViewById(R.id.txtSelected)
+        txtLayers = findViewById(R.id.txtLayers)
+        txtZoom = findViewById(R.id.txtZoom)
         txtCustomMp = findViewById(R.id.txtCustomMp)
         editCustomW = findViewById(R.id.editCustomW)
         editCustomH = findViewById(R.id.editCustomH)
@@ -159,16 +191,44 @@ class MainActivity : Activity() {
         spTextColor = findViewById(R.id.spTextColor)
         chkShadow = findViewById(R.id.chkShadow)
         editText = findViewById(R.id.editText)
+        spShadow = findViewById(R.id.spShadow)
+        spTemplate = findViewById(R.id.spTemplate)
+        spMarketplace = findViewById(R.id.spMarketplace)
+        spLogoColor = findViewById(R.id.spLogoColor)
+        spLogoShape = findViewById(R.id.spLogoShape)
+        editLogoText = findViewById(R.id.editLogoText)
+        txtBatchInfo = findViewById(R.id.txtBatchInfo)
+        txtRecent = findViewById(R.id.txtRecent)
+        txtYourContent = findViewById(R.id.txtYourContent)
+        homePanel = findViewById(R.id.homePanel)
+        editorPanel = findViewById(R.id.editorPanel)
+
+        findViewById<Button>(R.id.btnTabHome).setOnClickListener { showHome() }
+        findViewById<Button>(R.id.btnTabEditor).setOnClickListener { showEditor() }
+        findViewById<Button>(R.id.btnNewProject).setOnClickListener { pickImage(reqPick) }
+        findViewById<Button>(R.id.btnCamera).setOnClickListener {
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            if (intent.resolveActivity(packageManager) != null) startActivityForResult(intent, reqCamera)
+            else Toast.makeText(this, "No camera app found", Toast.LENGTH_SHORT).show()
+        }
+
+        findViewById<Button>(R.id.btnToolBg).setOnClickListener { showPanel(R.id.panelBg) }
+        findViewById<Button>(R.id.btnToolMask).setOnClickListener { showPanel(R.id.panelMask) }
+        findViewById<Button>(R.id.btnToolInsert).setOnClickListener { showPanel(R.id.panelInsert) }
+        findViewById<Button>(R.id.btnToolTemplate).setOnClickListener { showPanel(R.id.panelTemplate) }
+        findViewById<Button>(R.id.btnToolBackground).setOnClickListener { showPanel(R.id.panelBackground) }
+        findViewById<Button>(R.id.btnToolShadow).setOnClickListener { showPanel(R.id.panelShadow) }
+        findViewById<Button>(R.id.btnToolResize).setOnClickListener { showPanel(R.id.panelResize) }
+        findViewById<Button>(R.id.btnToolText).setOnClickListener { showPanel(R.id.panelText) }
+        findViewById<Button>(R.id.btnToolLogo).setOnClickListener { showPanel(R.id.panelLogo) }
+        findViewById<Button>(R.id.btnToolLayers).setOnClickListener { updateLayersText(); showPanel(R.id.panelLayers) }
+        findViewById<Button>(R.id.btnToolExport).setOnClickListener { showPanel(R.id.panelExport) }
 
         setupSpinner(spBgMode, arrayOf("Transparent", "Solid colour", "Gradient", "Blurred original", "Photo background", "White background", "Studio look", "Flat Lay")) { pos ->
-            bgMode = pos; refreshPreview()
+            bgMode = pos; syncSceneBg(); updateLiveSize()
         }
-        setupSpinner(spSolid, solidNames) { pos ->
-            solidColor = solidColors[pos]; refreshPreview()
-        }
-        setupSpinner(spTextColor, textColorNames) { pos ->
-            textColor = textColors[pos]; refreshPreview()
-        }
+        setupSpinner(spSolid, solidNames) { pos -> solidColor = solidColors[pos]; syncSceneBg() }
+        setupSpinner(spTextColor, textColorNames) { pos -> textColor = textColors[pos] }
         setupSpinner(spAspect, arrayOf("Free (use pixel size)", "1:1", "4:5", "9:16", "16:9")) { pos ->
             if (updatingSpinners) return@setupSpinner
             when (pos) {
@@ -178,58 +238,9 @@ class MainActivity : Activity() {
                 4 -> applyAspect(1920, 1080)
             }
         }
-        setupSpinner(spExportSize, presetLabels) { pos ->
-            exportPresetIndex = pos; updateExportInfo()
-        }
-
-        findViewById<Button>(R.id.btnPick).setOnClickListener { pickImage(reqPick) }
-        findViewById<Button>(R.id.btnCamera).setOnClickListener {
-            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-            if (intent.resolveActivity(packageManager) != null) {
-                startActivityForResult(intent, reqCamera)
-            } else {
-                Toast.makeText(this, "No camera app found", Toast.LENGTH_SHORT).show()
-            }
-        }
-        findViewById<Button>(R.id.btnAuto).setOnClickListener { autoRemove() }
-        findViewById<Button>(R.id.btnPickColor).setOnClickListener {
-            pickColorMode = true; brushMode = 0
-            statusText.text = "Tap the background colour on the photo."
-        }
-        findViewById<Button>(R.id.btnErase).setOnClickListener {
-            brushMode = 1; pickColorMode = false; statusText.text = "Brush: erase - drag on the photo."
-        }
-        findViewById<Button>(R.id.btnRestore).setOnClickListener {
-            brushMode = 2; pickColorMode = false; statusText.text = "Brush: restore - drag on the photo."
-        }
-        findViewById<Button>(R.id.btnToggle).setOnClickListener {
-            showOriginal = !showOriginal; refreshPreview()
-        }
-        findViewById<Button>(R.id.btnBgPhoto).setOnClickListener { pickImage(reqBg) }
-        findViewById<Button>(R.id.btnLogo).setOnClickListener { pickImage(reqLogo) }
-        findViewById<Button>(R.id.btnAddText).setOnClickListener {
-            overlayText = editText.text.toString(); refreshPreview()
-        }
-        findViewById<Button>(R.id.btnExportPng).setOnClickListener { exportImage(true) }
-        findViewById<Button>(R.id.btnExportJpg).setOnClickListener { exportImage(false) }
-
-        setSeekListener(R.id.seekTolerance) { tolerance = it; }
-        setSeekListener(R.id.seekBrush) { brushRadius = max(4, it); }
-        setSeekListener(R.id.seekBright) { bright = it; refreshPreview(); }
-        setSeekListener(R.id.seekContrast) { contrast = it; refreshPreview(); }
-        setSeekListener(R.id.seekSaturation) { saturation = it; refreshPreview(); }
-        setSeekListener(R.id.seekTextSize) { textSizeProgress = it; refreshPreview(); }
-        chkShadow.setOnCheckedChangeListener { _, _ -> refreshPreview() }
-        spShadow = findViewById(R.id.spShadow)
-        spTemplate = findViewById(R.id.spTemplate)
-        spMarketplace = findViewById(R.id.spMarketplace)
-        spLogoColor = findViewById(R.id.spLogoColor)
-        spLogoShape = findViewById(R.id.spLogoShape)
-        editLogoText = findViewById(R.id.editLogoText)
-        txtBatchInfo = findViewById(R.id.txtBatchInfo)
-        txtRecent = findViewById(R.id.txtRecent)
+        setupSpinner(spExportSize, presetLabels) { pos -> applyPreset(pos) }
         setupSpinner(spShadow, arrayOf("Shadow: None", "Shadow: Soft", "Shadow: Hard", "Shadow: Floating")) { pos ->
-            shadowMode = pos; refreshPreview()
+            shadowMode = pos; syncSceneBg()
         }
         spShadow.setSelection(1)
         setupSpinner(spTemplate, arrayOf("Template: White", "Template: Black", "Template: Transparent", "Template: Original", "Template: Blue gradient", "Template: Green gradient", "Template: Warm", "Template: Cool")) { pos ->
@@ -242,10 +253,24 @@ class MainActivity : Activity() {
         }
         setupSpinner(spLogoColor, textColorNames) { pos -> logoColor = textColors[pos] }
         setupSpinner(spLogoShape, arrayOf("Logo shape: None", "Logo shape: Circle", "Logo shape: Square")) { pos -> logoShape = pos }
-        findViewById<Button>(R.id.btnFill).setOnClickListener {
-            brushMode = 3; pickColorMode = false; statusText.text = "Brush: fill - drag on an erased area to fill it with nearby colours."
+
+        findViewById<Button>(R.id.btnAuto).setOnClickListener { autoRemoveOnSelected() }
+        findViewById<Button>(R.id.btnPickColor).setOnClickListener {
+            pickColorMode = true; brushMode = 0
+            statusText.text = "Tap the background colour on the photo."
         }
-        findViewById<Button>(R.id.btnBuildLogo).setOnClickListener { buildLogoBitmap() }
+        findViewById<Button>(R.id.btnToggle).setOnClickListener {
+            showOriginal = !showOriginal; sceneView.showOriginal = showOriginal; sceneView.invalidate()
+        }
+        findViewById<Button>(R.id.btnErase).setOnClickListener { brushMode = 1; pickColorMode = false; statusText.text = "Brush: erase - drag on the photo." }
+        findViewById<Button>(R.id.btnRestore).setOnClickListener { brushMode = 2; pickColorMode = false; statusText.text = "Brush: restore - drag on the photo." }
+        findViewById<Button>(R.id.btnFill).setOnClickListener { brushMode = 3; pickColorMode = false; statusText.text = "Brush: fill - drag on an erased area to fill it with nearby colours." }
+        findViewById<Button>(R.id.btnBgPhoto).setOnClickListener { pickImage(reqBg) }
+        findViewById<Button>(R.id.btnLogo).setOnClickListener { pickImage(reqLogo) }
+        findViewById<Button>(R.id.btnAddText).setOnClickListener { addTextObject() }
+        findViewById<Button>(R.id.btnBuildLogo).setOnClickListener { buildLogoObject() }
+        findViewById<Button>(R.id.btnExportPng).setOnClickListener { exportImage(true) }
+        findViewById<Button>(R.id.btnExportJpg).setOnClickListener { exportImage(false) }
         findViewById<Button>(R.id.btnSaveBrand).setOnClickListener { saveBrand() }
         findViewById<Button>(R.id.btnLoadBrand).setOnClickListener { loadBrand() }
         findViewById<Button>(R.id.btnPickBatch).setOnClickListener {
@@ -256,8 +281,43 @@ class MainActivity : Activity() {
             startActivityForResult(intent, reqBatch)
         }
         findViewById<Button>(R.id.btnBatchExport).setOnClickListener { batchExport() }
-        setSeekListener(R.id.seekHue) { hueShift = it - 180; refreshPreview(); }
-        loadRecent()
+
+        findViewById<Button>(R.id.btnInsertPick).setOnClickListener { pickImage(reqInsert) }
+        findViewById<Button>(R.id.btnInsertAuto).setOnClickListener { insertAutoRemove() }
+        findViewById<Button>(R.id.btnInsertTap).setOnClickListener {
+            insertTapMode = true; brushMode = 0
+            statusText.text = "Tap the inserted photo's background colour."
+        }
+        findViewById<Button>(R.id.btnInsertErase).setOnClickListener { brushMode = 1; statusText.text = "Insert brush: erase - drag on the inserted photo." }
+        findViewById<Button>(R.id.btnInsertRestore).setOnClickListener { brushMode = 2; statusText.text = "Insert brush: restore - drag on the inserted photo." }
+        findViewById<Button>(R.id.btnInsertDone).setOnClickListener { finishInsert() }
+        findViewById<Button>(R.id.btnInsertCancel).setOnClickListener { cancelInsert() }
+
+        findViewById<Button>(R.id.btnLayerUp).setOnClickListener { moveLayer(1) }
+        findViewById<Button>(R.id.btnLayerDown).setOnClickListener { moveLayer(-1) }
+        findViewById<Button>(R.id.btnLayerFront).setOnClickListener { moveLayerToEnd(true) }
+        findViewById<Button>(R.id.btnLayerBack).setOnClickListener { moveLayerToEnd(false) }
+        findViewById<Button>(R.id.btnLayerDelete).setOnClickListener { deleteSelected() }
+        findViewById<Button>(R.id.btnLayerHide).setOnClickListener { toggleHideSelected() }
+        findViewById<Button>(R.id.btnObjBigger).setOnClickListener { scaleSelected(1.15f) }
+        findViewById<Button>(R.id.btnObjSmaller).setOnClickListener { scaleSelected(0.87f) }
+
+        setSeekListener(R.id.seekTolerance) { tolerance = it }
+        setSeekListener(R.id.seekBrush) { brushRadius = max(4, it) }
+        setSeekListener(R.id.seekZoom) { progress ->
+            sceneView.zoom = 1f + progress / 100f
+            txtZoom.text = "Zoom: " + (100 + progress) + "% (pinch or slider)"
+            sceneView.invalidate()
+        }
+        setSeekListener(R.id.seekBright) { v -> selectedObj()?.let { it.bright = v; sceneView.invalidate(); updateLiveSize() } }
+        setSeekListener(R.id.seekContrast) { v -> selectedObj()?.let { it.contrast = v; sceneView.invalidate(); updateLiveSize() } }
+        setSeekListener(R.id.seekSaturation) { v -> selectedObj()?.let { it.saturation = v; sceneView.invalidate(); updateLiveSize() } }
+        setSeekListener(R.id.seekWhite) { v -> selectedObj()?.let { it.white = v; sceneView.invalidate(); updateLiveSize() } }
+        setSeekListener(R.id.seekBlack) { v -> selectedObj()?.let { it.black = v; sceneView.invalidate(); updateLiveSize() } }
+        setSeekListener(R.id.seekHue) { v -> selectedObj()?.let { it.hue = v - 180; sceneView.invalidate(); updateLiveSize() } }
+        setSeekListener(R.id.seekTextSize) { textSizeProgress = it }
+
+        chkShadow.setOnCheckedChangeListener { _, checked -> shadowEnabled = checked; syncSceneBg() }
 
         val customWatcher = object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -267,10 +327,11 @@ class MainActivity : Activity() {
         editCustomW.addTextChangedListener(customWatcher)
         editCustomH.addTextChangedListener(customWatcher)
 
-        preview.setOnTouchListener { _, event -> onPreviewTouch(event) }
-
+        loadRecent()
         updateOriginalInfo()
         updateExportInfo()
+        updateLiveSize()
+        showPanel(R.id.panelBg)
     }
 
     private fun setupSpinner(spinner: Spinner, items: Array<String>, onSelect: (Int) -> Unit) {
@@ -292,6 +353,15 @@ class MainActivity : Activity() {
             override fun onStartTrackingTouch(s: SeekBar?) {}
             override fun onStopTrackingTouch(s: SeekBar?) {}
         })
+    }
+
+    private fun syncSceneBg() {
+        sceneView.bgMode = bgMode
+        sceneView.bgSolidColor = solidColor
+        sceneView.bgPhoto = bgPhoto
+        sceneView.shadowEnabled = shadowEnabled
+        sceneView.shadowMode = shadowMode
+        sceneView.invalidate()
     }
 
     private fun pickImage(request: Int) {
@@ -317,14 +387,25 @@ class MainActivity : Activity() {
                     updatingSpinners = true
                     spBgMode.setSelection(4)
                     updatingSpinners = false
-                    refreshPreview()
+                    syncSceneBg()
                     statusText.text = "Background photo loaded."
                 }
                 reqLogo -> {
                     val uri = data.data ?: return
-                    logoBitmap = decodeScaled(uri, 512)
-                    refreshPreview()
-                    statusText.text = "Logo loaded. Drag it on the photo to move it."
+                    val bmp = decodeScaled(uri, 512) ?: return
+                    addObject("LOGO", "Logo image", bmp)
+                    statusText.text = "Logo loaded. Tap it on the canvas to select, then drag to move it."
+                }
+                reqInsert -> {
+                    val uri = data.data ?: return
+                    val bmp = decodeScaled(uri, 1024) ?: return
+                    insertOrig = bmp.copy(Bitmap.Config.ARGB_8888, true)
+                    insertBitmap = bmp.copy(Bitmap.Config.ARGB_8888, true)
+                    sceneView.insertBitmap = insertBitmap
+                    sceneView.insertMode = true
+                    brushMode = 0
+                    sceneView.invalidate()
+                    statusText.text = "Inserted photo ready. Remove its background here, then tap Place inserted object."
                 }
                 reqBatch -> {
                     batchUris.clear()
@@ -345,9 +426,7 @@ class MainActivity : Activity() {
                     if (bmp != null) {
                         originalW = bmp.width
                         originalH = bmp.height
-                        workBitmap = bmp.copy(Bitmap.Config.ARGB_8888, true)
-                        resetMask()
-                        updateOriginalInfo(); updateExportInfo(); refreshPreview()
+                        loadBitmapAsMain(bmp.copy(Bitmap.Config.ARGB_8888, true))
                         statusText.text = "Camera photo loaded (thumbnail from camera app)."
                     }
                 }
@@ -366,11 +445,44 @@ class MainActivity : Activity() {
         stream?.close()
         originalW = bounds.outWidth
         originalH = bounds.outHeight
-        workBitmap = decodeScaled(uri, 1024)
-        resetMask()
-        showOriginal = false
-        updateOriginalInfo(); updateExportInfo(); refreshPreview()
+        val bmp = decodeScaled(uri, 1024) ?: return
+        loadBitmapAsMain(bmp)
         statusText.text = "Photo loaded. Tap Auto Remove, or Tap BG colour, then fix edges with the brush."
+    }
+
+    private fun loadBitmapAsMain(bmp: Bitmap) {
+        origBitmap = bmp.copy(Bitmap.Config.ARGB_8888, true)
+        sceneView.objects.clear()
+        sceneView.canvasW = bmp.width
+        sceneView.canvasH = bmp.height
+        sceneView.origBitmap = origBitmap
+        sceneView.showOriginal = false
+        showOriginal = false
+        val main = SceneObj(nextObjId++, "MAIN", "Main cutout", bmp.copy(Bitmap.Config.ARGB_8888, true), origBitmap!!)
+        main.x = 0f; main.y = 0f; main.scale = 1f
+        sceneView.objects.add(main)
+        select(main.id)
+        applyExportSizeToScene()
+        updateOriginalInfo()
+        updateExportInfo()
+        updateLiveSize()
+        updateLayersText()
+        showEditor()
+    }
+
+    private fun addObject(kind: String, name: String, bmp: Bitmap): SceneObj {
+        val obj = SceneObj(nextObjId++, kind, name, bmp.copy(Bitmap.Config.ARGB_8888, true), bmp.copy(Bitmap.Config.ARGB_8888, true))
+        val cw = sceneView.canvasW.toFloat()
+        val ch = sceneView.canvasH.toFloat()
+        obj.scale = min(1f, min(cw / max(1, bmp.width), ch / max(1, bmp.height)) * 0.6f)
+        if (obj.scale <= 0f) obj.scale = 1f
+        obj.x = (cw - obj.w()) / 2f
+        obj.y = (ch - obj.h()) / 2f
+        sceneView.objects.add(obj)
+        select(obj.id)
+        updateLayersText()
+        updateLiveSize()
+        return obj
     }
 
     private fun decodeScaled(uri: Uri, maxDim: Int): Bitmap? {
@@ -389,159 +501,448 @@ class MainActivity : Activity() {
         return decoded?.copy(Bitmap.Config.ARGB_8888, true)
     }
 
-    private fun resetMask() {
-        val bmp = workBitmap ?: return
-        maskAlpha = IntArray(bmp.width * bmp.height) { 255 }
-        maskedBitmap = bmp.copy(Bitmap.Config.ARGB_8888, true)
+    // ---- Selection, touch, layers ----
+
+    private fun select(id: Int) {
+        sceneView.selectedId = id
+        val obj = selectedObj()
+        if (obj != null) {
+            // Programmatic set does not fire fromUser listeners, so this is safe.
+            findViewById<SeekBar>(R.id.seekBright).progress = obj.bright
+            findViewById<SeekBar>(R.id.seekContrast).progress = obj.contrast
+            findViewById<SeekBar>(R.id.seekSaturation).progress = obj.saturation
+            findViewById<SeekBar>(R.id.seekWhite).progress = obj.white
+            findViewById<SeekBar>(R.id.seekBlack).progress = obj.black
+            findViewById<SeekBar>(R.id.seekHue).progress = obj.hue + 180
+            txtSelected.text = "Selected: " + obj.name + " (" + obj.kind + "), " +
+                obj.w().toInt() + "x" + obj.h().toInt() + " px on canvas"
+        } else {
+            txtSelected.text = "Selected: none (tap an object to select it)"
+        }
+        sceneView.invalidate()
+        updateLayersText()
+        updateLiveSize()
     }
 
-    // ---- MP and size selection ----
+    private fun scaleSelected(factor: Float) {
+        val obj = selectedObj() ?: run {
+            Toast.makeText(this, "Select an object first", Toast.LENGTH_SHORT).show(); return
+        }
+        obj.scale = (obj.scale * factor).coerceIn(0.1f, 5f)
+        select(obj.id)
+    }
+
+    private fun updateLayersText() {
+        if (sceneView.objects.isEmpty()) {
+            txtLayers.text = "Layers: no objects yet"
+            return
+        }
+        val lines = mutableListOf<String>()
+        // Top of list = top of canvas = last in sceneView.objects.
+        for (i in sceneView.objects.indices.reversed()) {
+            val o = sceneView.objects[i]
+            val mark = if (o.id == sceneView.selectedId) " > " else "   "
+            val hidden = if (o.visible) "" else " (hidden)"
+            lines.add(mark + o.name + " (" + o.kind + ")" + hidden)
+        }
+        txtLayers.text = "Layers (top first):\n" + lines.joinToString("\n")
+    }
+
+    private fun moveLayer(delta: Int) {
+        val obj = selectedObj() ?: run {
+            Toast.makeText(this, "Select an object first", Toast.LENGTH_SHORT).show(); return
+        }
+        val list = sceneView.objects
+        val idx = list.indexOf(obj)
+        val target = (idx + delta).coerceIn(0, list.size - 1)
+        if (target != idx) {
+            list.removeAt(idx)
+            list.add(target, obj)
+        }
+        select(obj.id)
+    }
+
+    private fun moveLayerToEnd(toFront: Boolean) {
+        val obj = selectedObj() ?: run {
+            Toast.makeText(this, "Select an object first", Toast.LENGTH_SHORT).show(); return
+        }
+        sceneView.objects.remove(obj)
+        if (toFront) sceneView.objects.add(obj) else sceneView.objects.add(0, obj)
+        select(obj.id)
+    }
+
+    private fun deleteSelected() {
+        val obj = selectedObj() ?: run {
+            Toast.makeText(this, "Select an object first", Toast.LENGTH_SHORT).show(); return
+        }
+        if (obj.kind == "MAIN") {
+            Toast.makeText(this, "The main cutout cannot be deleted; hide it instead", Toast.LENGTH_SHORT).show()
+            return
+        }
+        sceneView.objects.remove(obj)
+        select(-1)
+        statusText.text = "Object deleted."
+    }
+
+    private fun toggleHideSelected() {
+        val obj = selectedObj() ?: run {
+            Toast.makeText(this, "Select an object first", Toast.LENGTH_SHORT).show(); return
+        }
+        obj.visible = !obj.visible
+        select(obj.id)
+    }
+
+    // SceneTouchListener: all coordinates here are already canvas coordinates
+    // from SceneView.viewToCanvas(), i.e. the exact inverse of the zoom/pan
+    // transform, so brush strokes and drags land where the user sees them.
+    override fun onSceneDown(cx: Float, cy: Float) {
+        dragObjId = -1
+        if (sceneView.insertMode) {
+            val ib = insertBitmap
+            if (ib != null) {
+                if (insertTapMode) {
+                    pickColorOnBitmap(insertBitmap!!, insertOrig!!, cx.toInt(), cy.toInt())
+                    insertTapMode = false
+                } else if (brushMode != 0) {
+                    brushOnBitmap(insertBitmap!!, insertOrig!!, cx, cy, 1f)
+                }
+            }
+            sceneView.invalidate()
+            return
+        }
+        if (pickColorMode) {
+            val obj = selectedObj() ?: sceneView.objects.firstOrNull { it.kind == "MAIN" }
+            if (obj != null) {
+                val lx = ((cx - obj.x) / obj.scale).toInt()
+                val ly = ((cy - obj.y) / obj.scale).toInt()
+                pickColorOnBitmap(obj.bitmap, obj.orig, lx, ly)
+            }
+            pickColorMode = false
+            sceneView.invalidate()
+            return
+        }
+        if (brushMode != 0) {
+            val obj = selectedObj() ?: sceneView.objects.firstOrNull { it.kind == "MAIN" }
+            if (obj != null && (obj.kind == "MAIN" || obj.kind == "INSERTED")) {
+                val lx = (cx - obj.x) / obj.scale
+                val ly = (cy - obj.y) / obj.scale
+                brushOnBitmap(obj.bitmap, obj.orig, lx, ly, obj.scale)
+            }
+            sceneView.invalidate()
+            return
+        }
+        // Tap-to-select: topmost object first (last in list = top).
+        var hit: SceneObj? = null
+        for (o in sceneView.objects.asReversed()) {
+            if (o.contains(cx, cy)) { hit = o; break }
+        }
+        if (hit != null) {
+            select(hit.id)
+            dragObjId = hit.id
+        } else {
+            select(-1)
+        }
+    }
+
+    override fun onSceneMove(cx: Float, cy: Float, dx: Float, dy: Float) {
+        if (sceneView.insertMode) {
+            if (brushMode != 0 && insertBitmap != null) {
+                brushOnBitmap(insertBitmap!!, insertOrig!!, cx, cy, 1f)
+                sceneView.invalidate()
+            }
+            return
+        }
+        if (brushMode != 0) {
+            val obj = selectedObj() ?: sceneView.objects.firstOrNull { it.kind == "MAIN" }
+            if (obj != null && (obj.kind == "MAIN" || obj.kind == "INSERTED")) {
+                val lx = (cx - obj.x) / obj.scale
+                val ly = (cy - obj.y) / obj.scale
+                brushOnBitmap(obj.bitmap, obj.orig, lx, ly, obj.scale)
+                sceneView.invalidate()
+            }
+            return
+        }
+        if (dragObjId >= 0) {
+            val obj = sceneView.objects.firstOrNull { it.id == dragObjId }
+            if (obj != null) {
+                obj.x += dx
+                obj.y += dy
+                sceneView.invalidate()
+            }
+        }
+    }
+
+    override fun onSceneUp(cx: Float, cy: Float, moved: Boolean) {
+        if (dragObjId >= 0) {
+            dragObjId = -1
+            updateLiveSize()
+        }
+    }
+
+    override fun onZoomChanged(zoom: Float) {
+        val pct = (zoom * 100).toInt()
+        txtZoom.text = "Zoom: " + pct + "% (pinch or slider)"
+        findViewById<SeekBar>(R.id.seekZoom).progress = ((zoom - 1f) * 100f).toInt().coerceIn(0, 300)
+    }
+
+    // ---- Size, templates, marketplace ----
 
     private fun mpText(w: Int, h: Int): String {
-        if (w <= 0 || h <= 0) return "—"
-        return String.format(Locale.US, "%.1f MP", w * h / 1000000.0)
+        val mp = w.toDouble() * h.toDouble() / 1000000.0
+        return String.format(Locale.US, "%.1f MP", mp)
     }
 
     private fun updateOriginalInfo() {
-        if (originalW > 0 && originalH > 0) {
-            txtOriginalSize.text = "Original size: " + originalW + "x" + originalH + " (" + mpText(originalW, originalH) + "). MP is calculated from pixels, not camera metadata."
+        txtOriginalSize.text = if (originalW > 0) {
+            "Original size: " + originalW + "x" + originalH + " (" + mpText(originalW, originalH) + ")"
         } else {
-            txtOriginalSize.text = "Original size: not loaded yet"
+            "Original size: not loaded yet"
         }
     }
 
-    private fun updateCustomMp() {
-        val wText = editCustomW.text.toString().trim()
-        val hText = editCustomH.text.toString().trim()
-        if (wText.isEmpty() || hText.isEmpty()) {
-            txtCustomMp.text = "Custom: enter width and height to see MP"
-            updateExportInfo()
-            return
-        }
-        val w = wText.toIntOrNull() ?: 0
-        val h = hText.toIntOrNull() ?: 0
-        if (w <= 0 || h <= 0) {
-            txtCustomMp.text = "Error: width and height must be greater than 0"
-            customW = 0; customH = 0
-        } else if (w > 8000 || h > 8000) {
-            txtCustomMp.text = "Error: max 8000 px per side (you entered " + w + "x" + h + ")"
-            customW = w; customH = h
-        } else {
-            txtCustomMp.text = "Custom: " + w + "x" + h + " (" + mpText(w, h) + ")"
-            customW = w; customH = h
-        }
-        updateExportInfo()
-    }
-
-    private fun getExportSize(): Pair<Int, Int>? {
-        return when (exportPresetIndex) {
-            0 -> {
-                if (originalW > 0 && originalH > 0) Pair(originalW, originalH)
-                else workBitmap?.let { Pair(it.width, it.height) }
-            }
-            7 -> {
-                if (customW > 0 && customH > 0 && customW <= 8000 && customH <= 8000) Pair(customW, customH) else null
-            }
-            else -> Pair(presetW[exportPresetIndex], presetH[exportPresetIndex])
-        }
+    private fun applyExportSizeToScene() {
+        sceneView.exportW = exportW
+        sceneView.exportH = exportH
+        sceneView.invalidate()
+        updateLiveSize()
     }
 
     private fun updateExportInfo() {
-        val size = getExportSize()
-        if (size == null) {
-            txtExportInfo.text = "Export size: invalid custom size (both sides must be 1 to 8000 px)"
+        txtExportInfo.text = "Export size: " + exportW + "x" + exportH + " (" + mpText(exportW, exportH) + ")"
+        applyExportSizeToScene()
+    }
+
+    private fun updateLiveSize() {
+        val sel = selectedObj()
+        val selText = if (sel != null) {
+            ", selected " + sel.name + " " + sel.w().toInt() + "x" + sel.h().toInt() + " px"
         } else {
-            txtExportInfo.text = "Export size: " + size.first + "x" + size.second + " (" + mpText(size.first, size.second) + ")"
+            ", no object selected"
         }
+        txtLiveSize.text = "Live size: canvas " + sceneView.canvasW + "x" + sceneView.canvasH +
+            ", export " + exportW + "x" + exportH + " (" + mpText(exportW, exportH) + ")" +
+            ", " + sceneView.objects.size + " object(s)" + selText
+    }
+
+    private fun updateCustomMp() {
+        val w = editCustomW.text.toString().toIntOrNull() ?: 0
+        val h = editCustomH.text.toString().toIntOrNull() ?: 0
+        if (w > 0 && h > 0 && w <= 8000 && h <= 8000) {
+            customW = w; customH = h
+            txtCustomMp.text = "Custom: " + w + "x" + h + " (" + mpText(w, h) + ")"
+            exportW = w; exportH = h
+            updateExportInfo()
+        } else if (w > 0 || h > 0) {
+            txtCustomMp.text = "Custom: enter a valid width and height (max 8000 per side)"
+        }
+    }
+
+    private fun applyPreset(pos: Int) {
+        if (pos == 7) {
+            // Custom: keep whatever custom size was typed, if valid.
+            if (customW > 0 && customH > 0) { exportW = customW; exportH = customH }
+            updateExportInfo()
+            return
+        }
+        if (pos == 0) {
+            exportW = sceneView.canvasW
+            exportH = sceneView.canvasH
+        } else {
+            exportW = presetW[pos]
+            exportH = presetH[pos]
+        }
+        updateExportInfo()
     }
 
     private fun applyAspect(w: Int, h: Int) {
         customW = w; customH = h
-        updatingSpinners = true
         editCustomW.setText(w.toString())
         editCustomH.setText(h.toString())
-        updatingSpinners = false
-        // Select the matching preset if it exists, otherwise Custom.
-        var matched = 7
-        for (i in 1..6) {
-            if (presetW[i] == w && presetH[i] == h) { matched = i; break }
-        }
+        exportW = w; exportH = h
         updatingSpinners = true
-        spExportSize.setSelection(matched)
+        spExportSize.setSelection(7)
         updatingSpinners = false
-        exportPresetIndex = matched
         updateCustomMp()
         updateExportInfo()
+        statusText.text = "Aspect size set: " + w + "x" + h + " (" + mpText(w, h) + ")"
     }
 
-    // ---- Classical (non-AI) background removal ----
+    private fun applyTemplate(pos: Int) {
+        showOriginal = false
+        sceneView.showOriginal = false
+        when (pos) {
+            0 -> { bgMode = 5; shadowMode = 1; spShadow.setSelection(1) }
+            1 -> { bgMode = 1; solidColor = Color.BLACK; spSolid.setSelection(1) }
+            2 -> { bgMode = 0 }
+            3 -> { showOriginal = true; sceneView.showOriginal = true }
+            4 -> { bgMode = 2; solidColor = Color.parseColor("#1565C0") }
+            5 -> { bgMode = 2; solidColor = Color.parseColor("#2E7D32") }
+            6 -> { bgMode = 1; solidColor = Color.parseColor("#FFF3E0") }
+            7 -> { bgMode = 1; solidColor = Color.parseColor("#E3F2FD") }
+        }
+        updatingSpinners = true
+        spBgMode.setSelection(bgMode)
+        updatingSpinners = false
+        syncSceneBg()
+        statusText.text = "Template applied (own template, not a copied premium template)."
+    }
+
+    private fun applyMarketplace(pos: Int) {
+        if (pos == 0) return
+        val dims = arrayOf(
+            Pair(2048, 2048), Pair(2000, 2000), Pair(2700, 2025), Pair(1080, 1080),
+            Pair(1080, 1920), Pair(1200, 630), Pair(1080, 1920), Pair(1280, 720), Pair(1080, 1080)
+        )
+        val d = dims[pos - 1]
+        customW = d.first; customH = d.second
+        editCustomW.setText(d.first.toString())
+        editCustomH.setText(d.second.toString())
+        exportW = d.first; exportH = d.second
+        updateCustomMp()
+        updateExportInfo()
+        statusText.text = "Marketplace size set: " + d.first + "x" + d.second + " (" + mpText(d.first, d.second) + ")"
+    }
+
+    private fun addTextObject() {
+        val text = editText.text.toString()
+        if (text.isEmpty()) {
+            Toast.makeText(this, "Type some text first", Toast.LENGTH_SHORT).show(); return
+        }
+        val existing = selectedObj()?.takeIf { it.kind == "TEXT" }
+        val size = 512
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint()
+        paint.isAntiAlias = true
+        paint.color = textColor
+        paint.textSize = size * 0.16f * (textSizeProgress / 48f)
+        paint.textAlign = Paint.Align.CENTER
+        canvas.drawText(text, size / 2f, size / 2f, paint)
+        if (existing != null) {
+            existing.bitmap = bmp
+            existing.orig = bmp.copy(Bitmap.Config.ARGB_8888, true)
+            select(existing.id)
+        } else {
+            addObject("TEXT", "Text: " + text.take(20), bmp)
+        }
+        statusText.text = "Text object added. Tap it on the canvas to select, then drag to move it."
+    }
+
+    private fun buildLogoObject() {
+        val logoText = editLogoText.text.toString().trim()
+        if (logoText.isEmpty()) {
+            Toast.makeText(this, "Type a logo text first", Toast.LENGTH_SHORT).show(); return
+        }
+        val size = 512
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint()
+        paint.isAntiAlias = true
+        if (logoShape == 1) {
+            paint.color = logoColor
+            canvas.drawCircle(size / 2f, size / 2f, size * 0.42f, paint)
+            paint.color = Color.WHITE
+        } else if (logoShape == 2) {
+            paint.color = logoColor
+            canvas.drawRect(size * 0.1f, size * 0.1f, size * 0.9f, size * 0.9f, paint)
+            paint.color = Color.WHITE
+        } else {
+            paint.color = logoColor
+        }
+        paint.textSize = size * 0.16f
+        paint.textAlign = Paint.Align.CENTER
+        canvas.drawText(logoText, size / 2f, size / 2f + size * 0.06f, paint)
+        addObject("LOGO", "Logo: " + logoText.take(20), bmp)
+        statusText.text = "Text logo object built (own logo builder, no AI generation). Drag it on the canvas to move it."
+    }
+
+    private fun saveBrand() {
+        val prefs = getSharedPreferences("brandkit", MODE_PRIVATE)
+        val ed = prefs.edit()
+        ed.putInt("solidColor", solidColor)
+        ed.putInt("textColor", textColor)
+        ed.putString("logoText", editLogoText.text.toString())
+        ed.putInt("logoColor", logoColor)
+        ed.putInt("logoShape", logoShape)
+        ed.putInt("shadowMode", shadowMode)
+        ed.apply()
+        val logo = selectedObj()?.takeIf { it.kind == "LOGO" }?.bitmap
+        if (logo != null) {
+            try {
+                val out = openFileOutput("brand_logo.png", MODE_PRIVATE)
+                logo.compress(Bitmap.CompressFormat.PNG, 100, out)
+                out.close()
+            } catch (e: Exception) { }
+        }
+        statusText.text = "Brand kit saved on this device only (no cloud sync)."
+        Toast.makeText(this, "Brand kit saved", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun loadBrand() {
+        val prefs = getSharedPreferences("brandkit", MODE_PRIVATE)
+        if (!prefs.contains("solidColor") && !prefs.contains("logoText")) {
+            statusText.text = "No saved brand kit yet. Save one first."
+            return
+        }
+        solidColor = prefs.getInt("solidColor", Color.WHITE)
+        textColor = prefs.getInt("textColor", Color.BLACK)
+        logoColor = prefs.getInt("logoColor", Color.BLACK)
+        logoShape = prefs.getInt("logoShape", 0)
+        shadowMode = prefs.getInt("shadowMode", 1)
+        editLogoText.setText(prefs.getString("logoText", ""))
+        spShadow.setSelection(shadowMode)
+        try {
+            val inp = openFileInput("brand_logo.png")
+            val bmp = BitmapFactory.decodeStream(inp)
+            inp.close()
+            if (bmp != null) addObject("LOGO", "Brand logo", bmp.copy(Bitmap.Config.ARGB_8888, true))
+        } catch (e: Exception) { }
+        syncSceneBg()
+        statusText.text = "Brand kit loaded from this device."
+    }
+
+    private fun loadRecent() {
+        val prefs = getSharedPreferences("photocut", MODE_PRIVATE)
+        val saved = prefs.getString("recent", "") ?: ""
+        recentExports.clear()
+        if (saved.isNotEmpty()) recentExports.addAll(saved.split("|"))
+        updateRecentText()
+        updateYourContent()
+    }
+
+    private fun updateRecentText() {
+        txtRecent.text = if (recentExports.isEmpty()) {
+            "Recent exports: none yet"
+        } else {
+            "Recent exports:\n" + recentExports.take(5).joinToString("\n")
+        }
+    }
+
+    private fun updateYourContent() {
+        txtYourContent.text = if (recentExports.isEmpty()) {
+            "No projects yet. Start a new project below."
+        } else {
+            "Your content (local exports):\n" + recentExports.take(10).joinToString("\n")
+        }
+    }
+
+    private fun recordRecent(name: String, size: Pair<Int, Int>) {
+        val entry = name + " (" + size.first + "x" + size.second + ", " + mpText(size.first, size.second) + ")"
+        recentExports.add(0, entry)
+        while (recentExports.size > 10) recentExports.removeAt(recentExports.size - 1)
+        val prefs = getSharedPreferences("photocut", MODE_PRIVATE)
+        prefs.edit().putString("recent", recentExports.joinToString("|")).apply()
+        updateRecentText()
+        updateYourContent()
+    }
+
+    // ---- Classical (non-AI) background removal, on any photo bitmap ----
 
     private fun colorDistance(c1: Int, c2: Int): Double {
         val dr = (Color.red(c1) - Color.red(c2)).toDouble()
         val dg = (Color.green(c1) - Color.green(c2)).toDouble()
         val db = (Color.blue(c1) - Color.blue(c2)).toDouble()
         return sqrt(dr * dr + dg * dg + db * db)
-    }
-
-    private fun autoRemove() {
-        val bmp = workBitmap ?: run {
-            Toast.makeText(this, "Pick a photo first", Toast.LENGTH_SHORT).show(); return
-        }
-        val w = bmp.width; val h = bmp.height
-        val pixels = IntArray(w * h)
-        bmp.getPixels(pixels, 0, w, 0, 0, w, h)
-        var sr = 0L; var sg = 0L; var sb = 0L; var count = 0L
-        for (x in 0 until w step 4) {
-            for (yy in intArrayOf(0, h - 1)) {
-                val c = pixels[yy * w + x]; sr += Color.red(c); sg += Color.green(c); sb += Color.blue(c); count++
-            }
-        }
-        for (y in 0 until h step 4) {
-            for (xx in intArrayOf(0, w - 1)) {
-                val c = pixels[y * w + xx]; sr += Color.red(c); sg += Color.green(c); sb += Color.blue(c); count++
-            }
-        }
-        if (count == 0L) return
-        val bg = Color.rgb((sr / count).toInt(), (sg / count).toInt(), (sb / count).toInt())
-        val threshold = 20.0 + tolerance * 2.2
-        val mask = IntArray(w * h) { 255 }
-        val visited = BooleanArray(w * h)
-        val queue: ArrayDeque<Int> = ArrayDeque()
-        for (x in 0 until w) {
-            for (yy in intArrayOf(0, h - 1)) {
-                val idx = yy * w + x
-                if (!visited[idx] && colorDistance(pixels[idx], bg) < threshold) {
-                    visited[idx] = true; mask[idx] = 0; queue.add(idx)
-                }
-            }
-        }
-        for (y in 0 until h) {
-            for (xx in intArrayOf(0, w - 1)) {
-                val idx = y * w + xx
-                if (!visited[idx] && colorDistance(pixels[idx], bg) < threshold) {
-                    visited[idx] = true; mask[idx] = 0; queue.add(idx)
-                }
-            }
-        }
-        val dx = intArrayOf(1, -1, 0, 0)
-        val dy = intArrayOf(0, 0, 1, -1)
-        while (!queue.isEmpty()) {
-            val cur = queue.removeFirst()
-            val cx = cur % w; val cy = cur / w
-            for (k in 0..3) {
-                val nx = cx + dx[k]; val ny = cy + dy[k]
-                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue
-                val nidx = ny * w + nx
-                if (!visited[nidx] && colorDistance(pixels[nidx], bg) < threshold) {
-                    visited[nidx] = true; mask[nidx] = 0; queue.add(nidx)
-                }
-            }
-        }
-        maskAlpha = featherMask(mask, w, h)
-        rebuildMasked()
-        showOriginal = false
-        refreshPreview()
-        statusText.text = "Auto Remove done (classical, no AI). Best on plain backgrounds; fix edges with Brush Erase / Restore."
     }
 
     private fun featherMask(mask: IntArray, w: Int, h: Int): IntArray {
@@ -569,201 +970,6 @@ class MainActivity : Activity() {
             }
         }
         return out
-    }
-
-    private fun rebuildMasked() {
-        val bmp = workBitmap ?: return
-        val mask = maskAlpha ?: return
-        val w = bmp.width; val h = bmp.height
-        val pixels = IntArray(w * h)
-        bmp.getPixels(pixels, 0, w, 0, 0, w, h)
-        for (i in pixels.indices) {
-            pixels[i] = (mask[i] shl 24) or (pixels[i] and 0x00FFFFFF)
-        }
-        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        out.setPixels(pixels, 0, w, 0, 0, w, h)
-        maskedBitmap = out
-    }
-
-    private fun pickColorAt(bx: Int, by: Int) {
-        val bmp = workBitmap ?: return
-        if (bx !in 0 until bmp.width || by !in 0 until bmp.height) return
-        val target = bmp.getPixel(bx, by)
-        val threshold = 20.0 + tolerance * 2.2
-        val w = bmp.width; val h = bmp.height
-        val pixels = IntArray(w * h)
-        bmp.getPixels(pixels, 0, w, 0, 0, w, h)
-        val mask = maskAlpha ?: IntArray(w * h) { 255 }
-        for (i in pixels.indices) {
-            if (colorDistance(pixels[i], target) < threshold) mask[i] = 0
-        }
-        maskAlpha = featherMask(mask, w, h)
-        rebuildMasked()
-        pickColorMode = false
-        showOriginal = false
-        refreshPreview()
-        statusText.text = "Background colour removed. Fix edges with the brush if needed."
-    }
-
-    private fun brushAt(bx: Int, by: Int) {
-        val bmp = workBitmap ?: return
-        val mask = maskAlpha ?: return
-        val masked = maskedBitmap ?: return
-        val w = bmp.width; val h = bmp.height
-        val r = brushRadius
-        for (dy in -r..r) {
-            for (dx in -r..r) {
-                if (dx * dx + dy * dy > r * r) continue
-                val nx = bx + dx; val ny = by + dy
-                if (nx !in 0 until w || ny !in 0 until h) continue
-                val idx = ny * w + nx
-                mask[idx] = if (brushMode == 1) 0 else 255
-                val orig = bmp.getPixel(nx, ny)
-                if (brushMode == 3) {
-                    var sr = 0; var sg = 0; var sb = 0; var n = 0
-                    for (ddy in -2..2) { for (ddx in -2..2) {
-                        val qx = nx + ddx; val qy = ny + ddy
-                        if (qx in 0 until w && qy in 0 until h) { val c = bmp.getPixel(qx, qy); sr += Color.red(c); sg += Color.green(c); sb += Color.blue(c); n++ }
-                    } }
-                    if (n > 0) masked.setPixel(nx, ny, (255 shl 24) or Color.rgb(sr / n, sg / n, sb / n)) else masked.setPixel(nx, ny, (255 shl 24) or (orig and 0x00FFFFFF))
-                }
-                if (brushMode != 3) masked.setPixel(nx, ny, (mask[idx] shl 24) or (orig and 0x00FFFFFF))
-            }
-        }
-        refreshPreview()
-    }
-
-
-    // ---- v2: templates, marketplace, logo builder, brand kit, batch, recent ----
-
-    private fun applyTemplate(pos: Int) {
-        showOriginal = false
-        when (pos) {
-            0 -> { bgMode = 5; shadowMode = 1; spShadow.setSelection(1) }
-            1 -> { bgMode = 1; solidColor = Color.BLACK; spSolid.setSelection(1) }
-            2 -> { bgMode = 0 }
-            3 -> { showOriginal = true }
-            4 -> { bgMode = 2; solidColor = Color.parseColor("#1565C0") }
-            5 -> { bgMode = 2; solidColor = Color.parseColor("#2E7D32") }
-            6 -> { bgMode = 1; solidColor = Color.parseColor("#FFF3E0") }
-            7 -> { bgMode = 1; solidColor = Color.parseColor("#E3F2FD") }
-        }
-        updatingSpinners = true
-        spBgMode.setSelection(bgMode)
-        updatingSpinners = false
-        refreshPreview()
-        statusText.text = "Template applied (own template, not a copied premium template)."
-    }
-
-    private fun applyMarketplace(pos: Int) {
-        if (pos == 0) return
-        val dims = arrayOf(Pair(2048, 2048), Pair(2000, 2000), Pair(2700, 2025), Pair(1080, 1080), Pair(1080, 1920), Pair(1200, 630), Pair(1080, 1920), Pair(1280, 720), Pair(1080, 1080))
-        val d = dims[pos - 1]
-        customW = d.first; customH = d.second
-        editCustomW.setText(d.first.toString())
-        editCustomH.setText(d.second.toString())
-        exportPresetIndex = 7
-        updateCustomMp(); updateExportInfo()
-        statusText.text = "Marketplace size set: " + d.first + "x" + d.second + " (" + mpText(d.first, d.second) + ")"
-    }
-
-    private fun buildLogoBitmap() {
-        logoText = editLogoText.text.toString().trim()
-        if (logoText.isEmpty()) {
-            Toast.makeText(this, "Type a logo text first", Toast.LENGTH_SHORT).show(); return
-        }
-        val size = 512
-        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        val paint = Paint()
-        paint.isAntiAlias = true
-        if (logoShape == 1) {
-            paint.color = logoColor
-            canvas.drawCircle(size / 2f, size / 2f, size * 0.42f, paint)
-            paint.color = Color.WHITE
-        } else if (logoShape == 2) {
-            paint.color = logoColor
-            canvas.drawRect(size * 0.1f, size * 0.1f, size * 0.9f, size * 0.9f, paint)
-            paint.color = Color.WHITE
-        } else {
-            paint.color = logoColor
-        }
-        paint.textSize = size * 0.16f
-        paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(logoText, size / 2f, size / 2f + size * 0.06f, paint)
-        logoBitmap = bmp
-        logoX = 0.5f; logoY = 0.15f
-        refreshPreview()
-        statusText.text = "Text logo built (own logo builder, no AI generation). Drag it on the photo to move it."
-    }
-
-    private fun saveBrand() {
-        val prefs = getSharedPreferences("brandkit", MODE_PRIVATE)
-        val ed = prefs.edit()
-        ed.putInt("solidColor", solidColor)
-        ed.putInt("textColor", textColor)
-        ed.putString("logoText", editLogoText.text.toString())
-        ed.putInt("logoColor", logoColor)
-        ed.putInt("logoShape", logoShape)
-        ed.putInt("shadowMode", shadowMode)
-        ed.apply()
-        val logo = logoBitmap
-        if (logo != null) {
-            try {
-                val out = openFileOutput("brand_logo.png", MODE_PRIVATE)
-                logo.compress(Bitmap.CompressFormat.PNG, 100, out)
-                out.close()
-            } catch (e: Exception) { }
-        }
-        statusText.text = "Brand kit saved on this device only (no cloud sync)."
-        Toast.makeText(this, "Brand kit saved", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun loadBrand() {
-        val prefs = getSharedPreferences("brandkit", MODE_PRIVATE)
-        if (!prefs.contains("solidColor") && !prefs.contains("logoText")) {
-            statusText.text = "No saved brand kit yet. Save one first."
-            return
-        }
-        solidColor = prefs.getInt("solidColor", Color.WHITE)
-        textColor = prefs.getInt("textColor", Color.BLACK)
-        logoColor = prefs.getInt("logoColor", Color.BLACK)
-        logoShape = prefs.getInt("logoShape", 0)
-        shadowMode = prefs.getInt("shadowMode", 1)
-        editLogoText.setText(prefs.getString("logoText", ""))
-        spShadow.setSelection(shadowMode)
-        try {
-            val inp = openFileInput("brand_logo.png")
-            logoBitmap = BitmapFactory.decodeStream(inp)
-            inp.close()
-        } catch (e: Exception) { }
-        refreshPreview()
-        statusText.text = "Brand kit loaded from this device."
-    }
-
-    private fun loadRecent() {
-        val prefs = getSharedPreferences("photocut", MODE_PRIVATE)
-        val saved = prefs.getString("recent", "") ?: ""
-        recentExports.clear()
-        if (saved.isNotEmpty()) recentExports.addAll(saved.split("|"))
-        updateRecentText()
-    }
-
-    private fun updateRecentText() {
-        if (recentExports.isEmpty()) {
-            txtRecent.text = "Recent exports: none yet"
-        } else {
-            txtRecent.text = "Recent exports:\n" + recentExports.take(5).joinToString("\n")
-        }
-    }
-
-    private fun recordRecent(name: String, size: Pair<Int, Int>) {
-        val entry = name + " (" + size.first + "x" + size.second + ", " + mpText(size.first, size.second) + ")"
-        recentExports.add(0, entry)
-        while (recentExports.size > 10) recentExports.removeAt(recentExports.size - 1)
-        val prefs = getSharedPreferences("photocut", MODE_PRIVATE)
-        prefs.edit().putString("recent", recentExports.joinToString("|")).apply()
-        updateRecentText()
     }
 
     private fun autoRemoveMask(bmp: Bitmap): IntArray {
@@ -814,103 +1020,153 @@ class MainActivity : Activity() {
         return featherMask(mask, w, h)
     }
 
-    private fun batchExport() {
-        if (batchUris.isEmpty()) {
-            Toast.makeText(this, "Pick batch photos first", Toast.LENGTH_SHORT).show(); return
+    private fun applyMaskToBitmap(target: Bitmap, orig: Bitmap, mask: IntArray) {
+        val w = target.width; val h = target.height
+        val pixels = IntArray(w * h)
+        orig.getPixels(pixels, 0, w, 0, 0, w, h)
+        for (i in pixels.indices) {
+            pixels[i] = (mask[i] shl 24) or (pixels[i] and 0x00FFFFFF)
         }
-        val size = getExportSize()
-        if (size == null) {
-            statusText.text = "Batch blocked: custom size is invalid"; return
-        }
-        var done = 0
-        for ((index, uri) in batchUris.withIndex()) {
-            try {
-                val bounds = BitmapFactory.Options()
-                bounds.inJustDecodeBounds = true
-                var stream = contentResolver.openInputStream(uri)
-                BitmapFactory.decodeStream(stream, null, bounds)
-                stream?.close()
-                originalW = bounds.outWidth; originalH = bounds.outHeight
-                workBitmap = decodeScaled(uri, 1024)
-                if (workBitmap == null) continue
-                maskAlpha = autoRemoveMask(workBitmap!!)
-                rebuildMasked()
-                showOriginal = false
-                val comp = composite(true) ?: continue
-                val scaled = Bitmap.createScaledBitmap(comp, size.first, size.second, true)
-                val finalBmp: Bitmap = if (bgMode == 0) {
-                    val white = Bitmap.createBitmap(scaled.width, scaled.height, Bitmap.Config.ARGB_8888)
-                    val canvas = Canvas(white); canvas.drawColor(Color.WHITE); canvas.drawBitmap(scaled, 0f, 0f, null); white
-                } else scaled
-                val name = "PhotoCut_batch_" + (index + 1) + "_" + System.currentTimeMillis() + ".png"
-                val values = ContentValues()
-                values.put(MediaStore.Images.Media.DISPLAY_NAME, name)
-                values.put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/PhotoCut")
-                val outUri: Uri? = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                if (outUri != null) {
-                    val out = contentResolver.openOutputStream(outUri)
-                    if (out != null) { finalBmp.compress(Bitmap.CompressFormat.PNG, 100, out); out.close() }
-                    recordRecent(name, size); done++
-                }
-            } catch (e: Exception) { continue }
-        }
-        txtBatchInfo.text = "Batch: exported " + done + " of " + batchUris.size + " photo(s) to Pictures/PhotoCut."
-        statusText.text = "Batch done: " + done + " of " + batchUris.size + " exported."
-        refreshPreview()
+        target.setPixels(pixels, 0, w, 0, 0, w, h)
     }
 
-    // ---- Preview, touch, composite ----
-
-    private fun bitmapPoint(viewX: Float, viewY: Float): Pair<Int, Int>? {
-        val bmp = workBitmap ?: return null
-        val vw = preview.width.toFloat(); val vh = preview.height.toFloat()
-        if (vw <= 0f || vh <= 0f) return null
-        val scale = min(vw / bmp.width, vh / bmp.height)
-        val dw = bmp.width * scale; val dh = bmp.height * scale
-        val ox = (vw - dw) / 2f; val oy = (vh - dh) / 2f
-        val bx = ((viewX - ox) / scale).toInt()
-        val by = ((viewY - oy) / scale).toInt()
-        if (bx !in 0 until bmp.width || by !in 0 until bmp.height) return null
-        return Pair(bx, by)
+    private fun autoRemoveOnSelected() {
+        val obj = selectedObj() ?: sceneView.objects.firstOrNull { it.kind == "MAIN" }
+        if (obj == null) {
+            Toast.makeText(this, "Pick a photo first", Toast.LENGTH_SHORT).show(); return
+        }
+        if (obj.kind != "MAIN" && obj.kind != "INSERTED") {
+            Toast.makeText(this, "Auto Remove works on photo objects only", Toast.LENGTH_SHORT).show(); return
+        }
+        val mask = autoRemoveMask(obj.orig)
+        applyMaskToBitmap(obj.bitmap, obj.orig, mask)
+        showOriginal = false
+        sceneView.showOriginal = false
+        sceneView.invalidate()
+        statusText.text = "Auto Remove done (classical, no AI). Best on plain backgrounds; fix edges with the Mask brush."
     }
 
-    private fun onPreviewTouch(event: MotionEvent): Boolean {
-        val bmp = workBitmap ?: return false
-        val pt = bitmapPoint(event.x, event.y) ?: return false
-        when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                if (pickColorMode) { pickColorAt(pt.first, pt.second); return true }
-                if (brushMode != 0) { brushAt(pt.first, pt.second); return true }
-                val tx = (textX * bmp.width).toInt(); val ty = (textY * bmp.height).toInt()
-                val lx = (logoX * bmp.width).toInt(); val ly = (logoY * bmp.height).toInt()
-                val nearText = overlayText.isNotEmpty() && kotlin.math.abs(pt.first - tx) < 120 && kotlin.math.abs(pt.second - ty) < 60
-                val nearLogo = logoBitmap != null && kotlin.math.abs(pt.first - lx) < 120 && kotlin.math.abs(pt.second - ly) < 120
-                dragWhat = when {
-                    nearText -> 1
-                    nearLogo -> 2
-                    else -> 0
+    private fun pickColorOnBitmap(target: Bitmap, orig: Bitmap, bx: Int, by: Int) {
+        if (bx !in 0 until orig.width || by !in 0 until orig.height) return
+        val targetColor = orig.getPixel(bx, by)
+        val threshold = 20.0 + tolerance * 2.2
+        val w = orig.width; val h = orig.height
+        val pixels = IntArray(w * h)
+        orig.getPixels(pixels, 0, w, 0, 0, w, h)
+        val current = IntArray(w * h)
+        target.getPixels(current, 0, w, 0, 0, w, h)
+        val mask = IntArray(w * h) { i -> Color.alpha(current[i]) }
+        for (i in pixels.indices) {
+            if (colorDistance(pixels[i], targetColor) < threshold) mask[i] = 0
+        }
+        applyMaskToBitmap(target, orig, featherMask(mask, w, h))
+        showOriginal = false
+        sceneView.showOriginal = false
+        statusText.text = "Background colour removed. Fix edges with the Mask brush if needed."
+    }
+
+    private fun brushOnBitmap(target: Bitmap, orig: Bitmap, lx: Float, ly: Float, objScale: Float) {
+        // lx/ly are in the bitmap's own pixel space; brush radius is in
+        // canvas space, so divide by the object's scale to stay consistent.
+        val r = max(1, (brushRadius / max(0.1f, objScale)).toInt())
+        val bx = lx.toInt()
+        val by = ly.toInt()
+        val w = target.width; val h = target.height
+        for (dy in -r..r) {
+            for (dx in -r..r) {
+                if (dx * dx + dy * dy > r * r) continue
+                val nx = bx + dx; val ny = by + dy
+                if (nx !in 0 until w || ny !in 0 until h) continue
+                val origPx = orig.getPixel(nx, ny)
+                if (brushMode == 3) {
+                    var sr = 0; var sg = 0; var sb = 0; var n = 0
+                    for (ddy in -2..2) { for (ddx in -2..2) {
+                        val qx = nx + ddx; val qy = ny + ddy
+                        if (qx in 0 until w && qy in 0 until h) { val c = orig.getPixel(qx, qy); sr += Color.red(c); sg += Color.green(c); sb += Color.blue(c); n++ }
+                    } }
+                    val fill = if (n > 0) Color.rgb(sr / n, sg / n, sb / n) else (origPx and 0x00FFFFFF)
+                    target.setPixel(nx, ny, (255 shl 24) or fill)
+                } else {
+                    val alpha = if (brushMode == 1) 0 else 255
+                    target.setPixel(nx, ny, (alpha shl 24) or (origPx and 0x00FFFFFF))
                 }
-                return true
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (brushMode != 0) { brushAt(pt.first, pt.second); return true }
-                if (dragWhat == 1) {
-                    textX = pt.first.toFloat() / bmp.width; textY = pt.second.toFloat() / bmp.height; refreshPreview()
-                } else if (dragWhat == 2) {
-                    logoX = pt.first.toFloat() / bmp.width; logoY = pt.second.toFloat() / bmp.height; refreshPreview()
-                }
-                return true
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                dragWhat = 0; return true
             }
         }
-        return false
     }
 
-    private fun blurredCopy(src: Bitmap): Bitmap {
-        return blurBitmap(src, 32)
+    // ---- Insert flow ----
+
+    private fun insertAutoRemove() {
+        val ib = insertBitmap ?: run {
+            Toast.makeText(this, "Pick a photo to insert first", Toast.LENGTH_SHORT).show(); return
+        }
+        val orig = insertOrig ?: return
+        val mask = autoRemoveMask(orig)
+        applyMaskToBitmap(ib, orig, mask)
+        sceneView.insertBitmap = ib
+        sceneView.invalidate()
+        statusText.text = "Inserted photo background removed (classical, no AI). Tap Place inserted object when done."
+    }
+
+    private fun finishInsert() {
+        val ib = insertBitmap ?: run {
+            Toast.makeText(this, "Pick a photo to insert first", Toast.LENGTH_SHORT).show(); return
+        }
+        val orig = insertOrig ?: return
+        sceneView.insertMode = false
+        sceneView.insertBitmap = null
+        insertBitmap = null
+        insertOrig = null
+        val obj = addObject("INSERTED", "Inserted photo", ib)
+        obj.orig = orig.copy(Bitmap.Config.ARGB_8888, true)
+        statusText.text = "Inserted object placed. Tap it to select, drag to move, adjust it, or reorder it in Layers."
+        showPanel(R.id.panelLayers)
+        updateLayersText()
+    }
+
+    private fun cancelInsert() {
+        sceneView.insertMode = false
+        sceneView.insertBitmap = null
+        insertBitmap = null
+        insertOrig = null
+        insertTapMode = false
+        sceneView.invalidate()
+        statusText.text = "Insert cancelled."
+    }
+
+    // ---- Export composite (own rendering, never the outline/handles) ----
+
+    private fun hueMatrix(degrees: Float): ColorMatrix {
+        val rad = Math.toRadians(degrees.toDouble()).toFloat()
+        val cos = kotlin.math.cos(rad)
+        val sin = kotlin.math.sin(rad)
+        val lumR = 0.213f
+        val lumG = 0.715f
+        val lumB = 0.072f
+        return ColorMatrix(floatArrayOf(
+            lumR + cos * (1 - lumR) + sin * (-lumR), lumG + cos * (-lumG) + sin * (-lumG), lumB + cos * (-lumB) + sin * (1 - lumB), 0f, 0f,
+            lumR + cos * (-lumR) + sin * 0.143f, lumG + cos * (1 - lumG) + sin * 0.140f, lumB + cos * (-lumB) + sin * (-0.283f), 0f, 0f,
+            lumR + cos * (-lumR) + sin * (-(1 - lumR)), lumG + cos * (-lumG) + sin * lumG, lumB + cos * (1 - lumB) + sin * lumB, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f
+        ))
+    }
+
+    private fun perObjectPaint(o: SceneObj): Paint {
+        val p = Paint()
+        p.isAntiAlias = true
+        val cm = ColorMatrix()
+        cm.setSaturation(o.saturation / 100f)
+        val c = o.contrast / 100f
+        val offset = (1f - c) * 128f + (o.bright - 100) * 1.28f + o.white * 1.28f - o.black * 1.28f
+        cm.postConcat(ColorMatrix(floatArrayOf(
+            c, 0f, 0f, 0f, offset,
+            0f, c, 0f, 0f, offset,
+            0f, 0f, c, 0f, offset,
+            0f, 0f, 0f, 1f, 0f
+        )))
+        if (o.hue != 0) cm.postConcat(hueMatrix(o.hue.toFloat()))
+        p.colorFilter = ColorMatrixColorFilter(cm)
+        return p
     }
 
     private fun blurBitmap(src: Bitmap, factor: Int): Bitmap {
@@ -920,191 +1176,151 @@ class MainActivity : Activity() {
         return Bitmap.createScaledBitmap(small, src.width, src.height, true)
     }
 
-    private fun hueMatrix(degrees: Float): ColorMatrix {
-        val rad = Math.toRadians(degrees.toDouble()).toFloat()
-        val cos = kotlin.math.cos(rad); val sin = kotlin.math.sin(rad)
-        val lumR = 0.213f; val lumG = 0.715f; val lumB = 0.072f
-        return ColorMatrix(floatArrayOf(
-            lumR + cos * (1 - lumR) + sin * (-lumR), lumG + cos * (-lumG) + sin * (-lumG), lumB + cos * (-lumB) + sin * (1 - lumB), 0f, 0f,
-            lumR + cos * (-lumR) + sin * (0.143f), lumG + cos * (1 - lumG) + sin * (0.140f), lumB + cos * (-lumB) + sin * (-0.283f), 0f, 0f,
-            lumR + cos * (-lumR) + sin * (-(1 - lumR)), lumG + cos * (-lumG) + sin * (lumG), lumB + cos * (1 - lumB) + sin * (lumB), 0f, 0f,
-            0f, 0f, 0f, 1f, 0f
-        ))
-    }
-
-    private fun composite(forExport: Boolean): Bitmap? {
-        val bmp = workBitmap ?: return null
-        val masked = maskedBitmap ?: bmp
-        val w = bmp.width; val h = bmp.height
-        val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(result)
+    private fun composite(isPng: Boolean): Bitmap? {
+        val ob = origBitmap ?: return null
+        val cw = sceneView.canvasW
+        val ch = sceneView.canvasH
+        val ew = exportW
+        val eh = exportH
+        val out = Bitmap.createBitmap(ew, eh, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
         val paint = Paint()
+        if (!isPng) canvas.drawColor(Color.WHITE)
+        if (showOriginal) {
+            canvas.drawBitmap(Bitmap.createScaledBitmap(ob, ew, eh, true), 0f, 0f, null)
+            return out
+        }
+        val sx = ew.toFloat() / cw
+        val sy = eh.toFloat() / ch
+        paint.shader = null
+        paint.colorFilter = null
         when (bgMode) {
-            0 -> {
-                if (!forExport) {
-                    val sq = 32
-                    var row = 0
-                    var y = 0
-                    while (y < h) {
-                        var col = 0
-                        var x = 0
-                        while (x < w) {
-                            paint.color = if ((row + col) % 2 == 0) Color.WHITE else Color.parseColor("#CCCCCC")
-                            canvas.drawRect(x.toFloat(), y.toFloat(), min(w, x + sq).toFloat(), min(h, y + sq).toFloat(), paint)
-                            x += sq; col++
-                        }
-                        y += sq; row++
-                    }
-                }
-            }
-            1 -> canvas.drawColor(solidColor)
+            0 -> { if (!isPng) canvas.drawColor(Color.WHITE) }
+            1 -> { paint.color = solidColor; canvas.drawRect(0f, 0f, ew.toFloat(), eh.toFloat(), paint) }
             2 -> {
-                paint.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), solidColor, Color.WHITE, Shader.TileMode.CLAMP)
-                canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+                paint.shader = LinearGradient(0f, 0f, 0f, eh.toFloat(), solidColor, Color.WHITE, Shader.TileMode.CLAMP)
+                canvas.drawRect(0f, 0f, ew.toFloat(), eh.toFloat(), paint)
                 paint.shader = null
             }
             3 -> {
-                val blurred = blurredCopy(bmp)
-                canvas.drawBitmap(blurred, 0f, 0f, null)
+                canvas.drawBitmap(blurBitmap(Bitmap.createScaledBitmap(ob, ew, eh, true), 32), 0f, 0f, null)
             }
             4 -> {
                 val bg = bgPhoto
                 if (bg != null) {
-                    val scale = max(w.toFloat() / bg.width, h.toFloat() / bg.height)
-                    val sw = (bg.width * scale).toInt(); val sh = (bg.height * scale).toInt()
-                    val scaled = Bitmap.createScaledBitmap(bg, sw, sh, true)
-                    canvas.drawBitmap(scaled, (w - sw) / 2f, (h - sh) / 2f, null)
-                } else {
-                    canvas.drawColor(Color.WHITE)
-                }
+                    val s = max(ew.toFloat() / bg.width, eh.toFloat() / bg.height)
+                    val sw = (bg.width * s).toInt()
+                    val sh = (bg.height * s).toInt()
+                    canvas.drawBitmap(Bitmap.createScaledBitmap(bg, sw, sh, true), (ew - sw) / 2f, (eh - sh) / 2f, null)
+                } else canvas.drawColor(Color.WHITE)
             }
-            5 -> canvas.drawColor(Color.WHITE)
-            6 -> {
-                canvas.drawColor(Color.WHITE)
-                // Studio look: clean white background; soft shadow is drawn below.
-            }
+            5, 6 -> canvas.drawColor(Color.WHITE)
             7 -> {
-                paint.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), Color.parseColor("#F5F5F5"), Color.parseColor("#E0E0E0"), Shader.TileMode.CLAMP)
-                canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+                paint.shader = LinearGradient(0f, 0f, 0f, eh.toFloat(), Color.parseColor("#F5F5F5"), Color.parseColor("#E0E0E0"), Shader.TileMode.CLAMP)
+                canvas.drawRect(0f, 0f, ew.toFloat(), eh.toFloat(), paint)
                 paint.shader = null
             }
         }
-        if (chkShadow.isChecked && shadowMode != 0) {
-            val mask = maskAlpha
-            if (mask != null) {
+        for (o in sceneView.objects) {
+            if (!o.visible) continue
+            if (shadowEnabled && shadowMode != 0 && o.kind == "MAIN") {
+                val w = o.bitmap.width
+                val h = o.bitmap.height
+                val pixels = IntArray(w * h)
+                o.bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
                 val alphaScale = when (shadowMode) { 2 -> 140; 3 -> 110; else -> 90 }
-                val shadow = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                 val spixels = IntArray(w * h)
-                for (i in spixels.indices) spixels[i] = ((mask[i] * alphaScale / 255) shl 24)
+                for (i in pixels.indices) spixels[i] = ((Color.alpha(pixels[i]) * alphaScale / 255) shl 24)
+                val shadow = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                 shadow.setPixels(spixels, 0, w, 0, 0, w, h)
                 val factor = when (shadowMode) { 2 -> 8; 3 -> 16; else -> 32 }
                 val offX = when (shadowMode) { 2 -> 8f; 3 -> 16f; else -> 12f }
                 val offY = when (shadowMode) { 2 -> 12f; 3 -> 28f; else -> 18f }
-                canvas.drawBitmap(blurBitmap(shadow, factor), offX, offY, null)
+                val blurred = blurBitmap(shadow, factor)
+                val scaledShadow = Bitmap.createScaledBitmap(blurred, max(1, (o.w() * sx).toInt()), max(1, (o.h() * sy).toInt()), true)
+                canvas.drawBitmap(scaledShadow, (o.x + offX) * sx, (o.y + offY) * sy, null)
             }
+            val scaled = Bitmap.createScaledBitmap(o.bitmap, max(1, (o.w() * sx).toInt()), max(1, (o.h() * sy).toInt()), true)
+            canvas.drawBitmap(scaled, o.x * sx, o.y * sy, perObjectPaint(o))
         }
-        val cm = ColorMatrix()
-        cm.setSaturation(saturation / 100f)
-        val c = contrast / 100f
-        val brightnessOffset = (bright - 100) * 1.28f
-        val offset = (1f - c) * 128f + brightnessOffset
-        val cm2 = ColorMatrix(floatArrayOf(
-            c, 0f, 0f, 0f, offset,
-            0f, c, 0f, 0f, offset,
-            0f, 0f, c, 0f, offset,
-            0f, 0f, 0f, 1f, 0f
-        ))
-        cm.postConcat(cm2)
-        if (hueShift != 0) cm.postConcat(hueMatrix(hueShift.toFloat()))
-        paint.colorFilter = ColorMatrixColorFilter(cm)
-        if (bgMode == 7) {
-            val sw = (w * 0.9f).toInt(); val sh = (h * 0.9f).toInt()
-            val scaledMasked = Bitmap.createScaledBitmap(masked, sw, sh, true)
-            canvas.drawBitmap(scaledMasked, (w - sw) / 2f, (h - sh) / 2f, paint)
-        } else {
-            canvas.drawBitmap(masked, 0f, 0f, paint)
-        }
-        paint.colorFilter = null
-        if (overlayText.isNotEmpty()) {
-            val tp = Paint()
-            tp.isAntiAlias = true
-            tp.color = textColor
-            tp.textSize = max(12f, textSizeProgress * (w / 1024f))
-            tp.textAlign = Paint.Align.CENTER
-            canvas.drawText(overlayText, textX * w, textY * h, tp)
-        }
-        val logo = logoBitmap
-        if (logo != null) {
-            val lw = (w * 0.25f).toInt()
-            val lh = (lw * logo.height / max(1, logo.width))
-            val left = (logoX * w - lw / 2).toInt()
-            val top = (logoY * h - lh / 2).toInt()
-            canvas.drawBitmap(Bitmap.createScaledBitmap(logo, lw, lh, true), left.toFloat(), top.toFloat(), null)
-        }
-        return result
+        return out
     }
-
-    private fun refreshPreview() {
-        val bmp = workBitmap ?: return
-        if (showOriginal) {
-            preview.setImageBitmap(bmp)
-        } else {
-            preview.setImageBitmap(composite(false))
-        }
-    }
-
-    // ---- Export ----
 
     private fun exportImage(isPng: Boolean) {
-        val bmp = workBitmap ?: run {
+        val comp = composite(isPng)
+        if (comp == null) {
             Toast.makeText(this, "Pick a photo first", Toast.LENGTH_SHORT).show(); return
         }
-        val size = getExportSize()
-        if (size == null) {
-            val msg = "Export blocked: custom size is invalid (both sides must be 1 to 8000 px)"
-            statusText.text = msg
-            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
-            return
-        }
-        if (size.first > 8000 || size.second > 8000) {
-            val msg = "Export blocked: max 8000 px per side"
-            statusText.text = msg
-            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
-            return
-        }
         try {
-            val comp = composite(true) ?: bmp
-            val scaled = Bitmap.createScaledBitmap(comp, size.first, size.second, true)
-            val finalBmp: Bitmap = if (!isPng && bgMode == 0) {
-                val white = Bitmap.createBitmap(scaled.width, scaled.height, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(white)
-                canvas.drawColor(Color.WHITE)
-                canvas.drawBitmap(scaled, 0f, 0f, null)
-                white
-            } else scaled
-            val ext = if (isPng) "png" else "jpg"
-            val name = "PhotoCut_" + System.currentTimeMillis() + "." + ext
+            val name = "PhotoCut_" + System.currentTimeMillis() + if (isPng) ".png" else ".jpg"
             val values = ContentValues()
             values.put(MediaStore.Images.Media.DISPLAY_NAME, name)
             values.put(MediaStore.Images.Media.MIME_TYPE, if (isPng) "image/png" else "image/jpeg")
             values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/PhotoCut")
-            val uri: Uri? = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-            if (uri == null) {
-                statusText.text = "Export failed: could not create file"
-                return
+            val outUri: Uri? = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            if (outUri != null) {
+                val out = contentResolver.openOutputStream(outUri)
+                if (out != null) {
+                    if (isPng) comp.compress(Bitmap.CompressFormat.PNG, 100, out) else comp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                    out.close()
+                }
+                recordRecent(name, Pair(exportW, exportH))
+                statusText.text = "Exported " + name + " (" + exportW + "x" + exportH + ") to Pictures/PhotoCut."
+                Toast.makeText(this, "Exported to Pictures/PhotoCut", Toast.LENGTH_SHORT).show()
             }
-            val out = contentResolver.openOutputStream(uri)
-            if (out != null) {
-                if (isPng) finalBmp.compress(Bitmap.CompressFormat.PNG, 100, out) else finalBmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
-                out.close()
-            }
-            recordRecent(name, size)
-            val msg = "Exported " + size.first + "x" + size.second + " (" + mpText(size.first, size.second) + ") to Pictures/PhotoCut as " + name
-            statusText.text = msg
-            Toast.makeText(this, "Exported", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             statusText.text = "Export failed: " + e.message
-            Toast.makeText(this, "Export failed", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun batchExport() {
+        if (batchUris.isEmpty()) {
+            Toast.makeText(this, "Pick batch photos first", Toast.LENGTH_SHORT).show(); return
+        }
+        var done = 0
+        for ((index, uri) in batchUris.withIndex()) {
+            try {
+                val bmp = decodeScaled(uri, 1024) ?: continue
+                val savedObjects = sceneView.objects.toList()
+                val savedOrig = origBitmap
+                val savedCanvasW = sceneView.canvasW
+                val savedCanvasH = sceneView.canvasH
+                val savedSelectedId = sceneView.selectedId
+                val savedShowOriginal = showOriginal
+                loadBitmapAsMain(bmp)
+                val main = sceneView.objects.firstOrNull { it.kind == "MAIN" }
+                if (main != null) {
+                    val mask = autoRemoveMask(main.orig)
+                    applyMaskToBitmap(main.bitmap, main.orig, mask)
+                }
+                val comp = composite(true) ?: continue
+                val name = "PhotoCut_batch_" + (index + 1) + "_" + System.currentTimeMillis() + ".png"
+                val values = ContentValues()
+                values.put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                values.put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/PhotoCut")
+                val outUri: Uri? = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                if (outUri != null) {
+                    val out = contentResolver.openOutputStream(outUri)
+                    if (out != null) { comp.compress(Bitmap.CompressFormat.PNG, 100, out); out.close() }
+                    recordRecent(name, Pair(exportW, exportH))
+                    done++
+                }
+                // Restore the user's project (batch must not destroy it).
+                sceneView.objects.clear()
+                sceneView.objects.addAll(savedObjects)
+                origBitmap = savedOrig
+                sceneView.origBitmap = savedOrig
+                sceneView.canvasW = savedCanvasW
+                sceneView.canvasH = savedCanvasH
+                sceneView.selectedId = savedSelectedId
+                showOriginal = savedShowOriginal
+                sceneView.showOriginal = savedShowOriginal
+                sceneView.invalidate()
+            } catch (e: Exception) { continue }
+        }
+        txtBatchInfo.text = "Batch: exported " + done + " of " + batchUris.size + " photo(s) to Pictures/PhotoCut."
+        statusText.text = "Batch done: " + done + " of " + batchUris.size + " exported."
+        updateLiveSize()
     }
 }
