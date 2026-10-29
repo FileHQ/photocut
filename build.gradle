@@ -1,0 +1,25 @@
+// Top-level build file for PhotoCut Offline (clean-room, fully offline).
+// AGP 8.5.2 + Kotlin 1.9.24, compatible with Gradle 8.7 (see
+// gradle/wrapper/gradle-wrapper.properties).
+buildscript {
+    ext.kotlin_version = '1.9.24'
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.5.2'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+tasks.register('clean', Delete) {
+    delete rootProject.layout.buildDirectory
+}
