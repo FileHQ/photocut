@@ -2,8 +2,10 @@ package com.technoon.photocut
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BlendMode
 import android.graphics.Canvas
 import android.graphics.Color
+import android.os.Build
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.DashPathEffect
@@ -40,11 +42,16 @@ class SceneObj(
     var white = 0
     var black = 0
     var hue = 0
+    var warmth = 0 // -100 cool .. 100 warm
+    var filter = 0 // 0 none, 1 sepia, 2 mono, 3 noir, 4 tonal, 5 fade, 6 chrome, 7 process
+    var opacity = 100 // 0..100
+    var blendMode = 0 // 0 normal, 1 multiply, 2 screen, 3 darken, 4 lighten
+    var locked = false
     var visible = true
     fun w(): Float = bitmap.width * scale
     fun h(): Float = bitmap.height * scale
     fun contains(cx: Float, cy: Float): Boolean =
-        visible && cx >= x && cx <= x + w() && cy >= y && cy <= y + h()
+        visible && !locked && cx >= x && cx <= x + w() && cy >= y && cy <= y + h()
 }
 
 /** Touch events forwarded to the activity in canvas coordinates. */
@@ -78,6 +85,9 @@ class SceneView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     var showOriginal = false
     var shadowEnabled = false
     var shadowMode = 1 // 1 soft, 2 hard, 3 floating
+    var shadowMove = 0f // extra shadow offset in canvas px, from the Shadow move slider
+    var cropMode = false
+    var cropRect: android.graphics.RectF? = null
     var insertMode = false
     var insertBitmap: Bitmap? = null
     var touchListener: SceneTouchListener? = null
@@ -137,8 +147,82 @@ class SceneView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
             0f, 0f, 0f, 1f, 0f
         )))
         if (o.hue != 0) cm.postConcat(hueMatrix(o.hue.toFloat()))
+        if (o.warmth != 0) {
+            val w = o.warmth / 100f
+            cm.postConcat(ColorMatrix(floatArrayOf(
+                1f + w * 0.25f, 0f, 0f, 0f, 0f,
+                0f, 1f, 0f, 0f, 0f,
+                0f, 0f, 1f - w * 0.25f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            )))
+        }
+        if (o.filter != 0) cm.postConcat(filterMatrix(o.filter))
         p.colorFilter = ColorMatrixColorFilter(cm)
+        p.alpha = (o.opacity * 255 / 100).coerceIn(0, 255)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            p.blendMode = when (o.blendMode) {
+                1 -> BlendMode.MULTIPLY
+                2 -> BlendMode.SCREEN
+                3 -> BlendMode.DARKEN
+                4 -> BlendMode.LIGHTEN
+                else -> null
+            }
+        }
         return p
+    }
+
+    private fun filterMatrix(f: Int): ColorMatrix {
+        return when (f) {
+            1 -> ColorMatrix(floatArrayOf( // sepia
+                0.393f, 0.769f, 0.189f, 0f, 0f,
+                0.349f, 0.686f, 0.168f, 0f, 0f,
+                0.272f, 0.534f, 0.131f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            2 -> ColorMatrix().apply { setSaturation(0f) } // mono
+            3 -> { // noir: mono + contrast
+                val m = ColorMatrix().apply { setSaturation(0f) }
+                m.postConcat(ColorMatrix(floatArrayOf(
+                    1.3f, 0f, 0f, 0f, -38f,
+                    0f, 1.3f, 0f, 0f, -38f,
+                    0f, 0f, 1.3f, 0f, -38f,
+                    0f, 0f, 0f, 1f, 0f
+                )))
+                m
+            }
+            4 -> ColorMatrix(floatArrayOf( // tonal: warm + slight contrast
+                1.15f, 0f, 0f, 0f, 0f,
+                0f, 1.1f, 0f, 0f, 0f,
+                0f, 0f, 0.95f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            5 -> ColorMatrix(floatArrayOf( // fade: low contrast, lifted blacks
+                0.85f, 0f, 0f, 0f, 25f,
+                0f, 0.85f, 0f, 0f, 25f,
+                0f, 0f, 0.85f, 0f, 25f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            6 -> { // chrome: high saturation + contrast
+                val m = ColorMatrix().apply { setSaturation(1.4f) }
+                m.postConcat(ColorMatrix(floatArrayOf(
+                    1.25f, 0f, 0f, 0f, -32f,
+                    0f, 1.25f, 0f, 0f, -32f,
+                    0f, 0f, 1.25f, 0f, -32f,
+                    0f, 0f, 0f, 1f, 0f
+                )))
+                m
+            }
+            else -> { // process: saturated, contrasty, warm
+                val m = ColorMatrix().apply { setSaturation(1.2f) }
+                m.postConcat(ColorMatrix(floatArrayOf(
+                    1.2f, 0f, 0f, 0f, 0f,
+                    0f, 1.1f, 0f, 0f, 0f,
+                    0f, 0f, 0.95f, 0f, 0f,
+                    0f, 0f, 0f, 1f, 0f
+                )))
+                m
+            }
+        }
     }
 
     private fun hueMatrix(degrees: Float): ColorMatrix {
@@ -243,6 +327,11 @@ class SceneView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
             val scaled = Bitmap.createScaledBitmap(o.bitmap, max(1, o.w().toInt()), max(1, o.h().toInt()), true)
             canvas.drawBitmap(scaled, o.x, o.y, perObjectPaint(o))
         }
+        // Crop rectangle (editor aid only, never exported).
+        if (cropMode) {
+            val cr = cropRect
+            if (cr != null) canvas.drawRect(cr, outlinePaint)
+        }
         // Selected outline + handles (topmost, never exported: export uses its own composite).
         val sel = objects.firstOrNull { it.id == selectedId && it.visible }
         if (sel != null) {
@@ -285,8 +374,8 @@ class SceneView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
         val shadow = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         shadow.setPixels(spixels, 0, w, 0, 0, w, h)
         val factor = when (shadowMode) { 2 -> 8; 3 -> 16; else -> 32 }
-        val offX = when (shadowMode) { 2 -> 8f; 3 -> 16f; else -> 12f }
-        val offY = when (shadowMode) { 2 -> 12f; 3 -> 28f; else -> 18f }
+        val offX = when (shadowMode) { 2 -> 8f; 3 -> 16f; else -> 12f } + shadowMove
+        val offY = when (shadowMode) { 2 -> 12f; 3 -> 28f; else -> 18f } + shadowMove
         val blurred = blurBitmap(shadow, factor)
         val scaled = Bitmap.createScaledBitmap(blurred, max(1, o.w().toInt()), max(1, o.h().toInt()), true)
         canvas.drawBitmap(scaled, o.x + offX / o.scale, o.y + offY / o.scale, null)
