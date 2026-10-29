@@ -35,7 +35,13 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * PhotoCut Offline v3 - clean-room, fully offline photo editor.
+ * PhotoCut Offline v4 - clean-room, fully offline photo editor.
+ * v4 adds only the remaining offline-feasible gaps from the complete
+ * function list: curvature/text-curve approximations, perspective
+ * approximations, halftone/line-screen approximations, disc/hexagonal
+ * blur approximations, 3D shadow approximation, multi-line text with
+ * line spacing, and batch resize modes expand/fill/fit. Everything
+ * from v3 is kept. No AI, no network, no account.
  * No AI, no ML model, no network code, no INTERNET permission, no account.
  * Structure (own design, from the functional inventory in recon-apktool.md):
  * Home (tabs + local your-content list) -> Editor (canvas on top, tool row
@@ -76,6 +82,7 @@ class MainActivity : Activity(), SceneTouchListener {
     private lateinit var spFilter: Spinner
     private lateinit var spBlend: Spinner
     private lateinit var spBlur: Spinner
+    private lateinit var spBatchResize: Spinner
     private lateinit var editLogoText: EditText
     private lateinit var txtBatchInfo: TextView
     private lateinit var txtRecent: TextView
@@ -109,6 +116,9 @@ class MainActivity : Activity(), SceneTouchListener {
     private var cropStartY = 0f
     private var textSpacing = 0
     private var textBold = false
+    private var curveAmount = 50
+    private var lineSpacing = 10
+    private var batchResizeMode = 0 // 0 fit, 1 fill, 2 expand
     private var sharpAmount = 50
     private var logoColor = Color.BLACK
     private var logoShape = 0
@@ -212,6 +222,7 @@ class MainActivity : Activity(), SceneTouchListener {
         spFilter = findViewById(R.id.spFilter)
         spBlend = findViewById(R.id.spBlend)
         spBlur = findViewById(R.id.spBlur)
+        spBatchResize = findViewById(R.id.spBatchResize)
         editLogoText = findViewById(R.id.editLogoText)
         txtBatchInfo = findViewById(R.id.txtBatchInfo)
         txtRecent = findViewById(R.id.txtRecent)
@@ -256,7 +267,7 @@ class MainActivity : Activity(), SceneTouchListener {
             }
         }
         setupSpinner(spExportSize, presetLabels) { pos -> applyPreset(pos) }
-        setupSpinner(spShadow, arrayOf("Shadow: None", "Shadow: Soft", "Shadow: Hard", "Shadow: Floating")) { pos ->
+        setupSpinner(spShadow, arrayOf("Shadow: None", "Shadow: Soft", "Shadow: Hard", "Shadow: Floating", "Shadow: 3D")) { pos ->
             shadowMode = pos; syncSceneBg()
         }
         spShadow.setSelection(1)
@@ -275,8 +286,11 @@ class MainActivity : Activity(), SceneTouchListener {
         setupSpinner(spBlend, arrayOf("Blend: Normal", "Blend: Multiply", "Blend: Screen", "Blend: Darken", "Blend: Lighten")) { pos ->
             selectedObj()?.let { it.blendMode = pos; sceneView.invalidate(); updateLiveSize() }
         }
-        setupSpinner(spBlur, arrayOf("Blur: None", "Blur: Box", "Blur: Gaussian", "Blur: Pixel", "Blur: Motion")) { pos ->
+        setupSpinner(spBlur, arrayOf("Blur: None", "Blur: Box", "Blur: Gaussian", "Blur: Pixel", "Blur: Motion", "Blur: Disc", "Blur: Hexagonal")) { pos ->
             pendingBlur = pos
+        }
+        setupSpinner(spBatchResize, arrayOf("Batch resize: Fit", "Batch resize: Fill", "Batch resize: Expand")) { pos ->
+            batchResizeMode = pos
         }
         setupSpinner(spLogoShape, arrayOf("Logo shape: None", "Logo shape: Circle", "Logo shape: Square")) { pos -> logoShape = pos }
 
@@ -333,6 +347,11 @@ class MainActivity : Activity(), SceneTouchListener {
         findViewById<Button>(R.id.btnPosterize).setOnClickListener { applyPosterizeToSelected() }
         findViewById<Button>(R.id.btnSharpen).setOnClickListener { applySharpenToSelected() }
         findViewById<Button>(R.id.btnImproveLight).setOnClickListener { improveLightSelected() }
+        findViewById<Button>(R.id.btnCurve).setOnClickListener { applyCurveToSelected() }
+        findViewById<Button>(R.id.btnPerspH).setOnClickListener { applyPerspectiveToSelected(true) }
+        findViewById<Button>(R.id.btnPerspV).setOnClickListener { applyPerspectiveToSelected(false) }
+        findViewById<Button>(R.id.btnHalftone).setOnClickListener { applyHalftoneToSelected() }
+        findViewById<Button>(R.id.btnLineScreen).setOnClickListener { applyLineScreenToSelected() }
         findViewById<Button>(R.id.btnRotateCW).setOnClickListener { rotateSelected(90f) }
         findViewById<Button>(R.id.btnRotateCCW).setOnClickListener { rotateSelected(-90f) }
         findViewById<Button>(R.id.btnAlignLeft).setOnClickListener { alignSelected(0) }
@@ -376,6 +395,8 @@ class MainActivity : Activity(), SceneTouchListener {
         setSeekListener(R.id.seekShadowMove) { v -> shadowMove = v.toFloat(); syncSceneBg() }
         setSeekListener(R.id.seekTextSize) { textSizeProgress = it }
         setSeekListener(R.id.seekTextSpacing) { textSpacing = it }
+        setSeekListener(R.id.seekLineSpacing) { lineSpacing = it }
+        setSeekListener(R.id.seekCurve) { curveAmount = it }
         findViewById<CheckBox>(R.id.chkTextBold).setOnCheckedChangeListener { _, checked -> textBold = checked }
 
         chkShadow.setOnCheckedChangeListener { _, checked -> shadowEnabled = checked; syncSceneBg() }
@@ -902,31 +923,88 @@ class MainActivity : Activity(), SceneTouchListener {
         statusText.text = "Marketplace size set: " + d.first + "x" + d.second + " (" + mpText(d.first, d.second) + ")"
     }
 
+    /** Build a text bitmap. Multi-line: one line per Enter, with the
+     *  line-spacing slider between lines. Used for new text objects and
+     *  for rebuilding a text object when a curve is applied. */
+    private fun buildTextBitmap(text: String): Bitmap {
+        val lines = text.split("\n")
+        val paint = Paint()
+        paint.isAntiAlias = true
+        paint.color = textColor
+        paint.textSize = 82f * (textSizeProgress / 48f)
+        paint.textAlign = Paint.Align.CENTER
+        paint.letterSpacing = textSpacing / 100f
+        paint.isFakeBoldText = textBold
+        var maxW = 0f
+        for (line in lines) maxW = max(maxW, paint.measureText(line))
+        val lineH = paint.textSize * 1.3f + lineSpacing
+        val w = (maxW + 40).toInt().coerceAtLeast(64)
+        val h = (lineH * lines.size + 40).toInt().coerceAtLeast(64)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        var y = 20f + paint.textSize
+        for (line in lines) {
+            canvas.drawText(line, w / 2f, y, paint)
+            y += lineH
+        }
+        return bmp
+    }
+
     private fun addTextObject() {
         val text = editText.text.toString()
         if (text.isEmpty()) {
             Toast.makeText(this, "Type some text first", Toast.LENGTH_SHORT).show(); return
         }
         val existing = selectedObj()?.takeIf { it.kind == "TEXT" }
-        val size = 512
-        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        val paint = Paint()
-        paint.isAntiAlias = true
-        paint.color = textColor
-        paint.textSize = size * 0.16f * (textSizeProgress / 48f)
-        paint.textAlign = Paint.Align.CENTER
-        paint.letterSpacing = textSpacing / 100f
-        paint.isFakeBoldText = textBold
-        canvas.drawText(text, size / 2f, size / 2f, paint)
+        val bmp = buildTextBitmap(text)
         if (existing != null) {
             existing.bitmap = bmp
             existing.orig = bmp.copy(Bitmap.Config.ARGB_8888, true)
+            existing.textContent = text
             select(existing.id)
         } else {
-            addObject("TEXT", "Text: " + text.take(20), bmp)
+            val obj = addObject("TEXT", "Text: " + text.replace("\n", " ").take(20), bmp)
+            obj.textContent = text
         }
-        statusText.text = "Text object added. Tap it on the canvas to select, then drag to move it."
+        statusText.text = "Text object added (multi-line: use Enter for a new line). Tap it on the canvas to select, then drag to move it."
+    }
+
+    /** Draw the stored text along an arc (text-curve approximation). */
+    private fun buildCurvedTextBitmap(text: String, curvePct: Int): Bitmap {
+        val lines = text.split("\n")
+        val paint = Paint()
+        paint.isAntiAlias = true
+        paint.color = textColor
+        paint.textSize = 82f * (textSizeProgress / 48f)
+        paint.textAlign = Paint.Align.CENTER
+        paint.letterSpacing = textSpacing / 100f
+        paint.isFakeBoldText = textBold
+        // Arc: curvePct 0 = straight, 100 = a half-circle-ish bend.
+        val totalAngle = (curvePct - 50) * 0.024f // -1.2 .. +1.2 radians
+        val size = 1024
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val cx = size / 2f
+        val cy = size / 2f + 160f
+        val radius = 420f
+        var lineY = 0f
+        for (line in lines) {
+            if (line.isEmpty()) { lineY += paint.textSize * 1.3f + lineSpacing; continue }
+            val n = line.length
+            for (i in line.indices) {
+                val ch = line[i].toString()
+                val frac = if (n <= 1) 0f else (i.toFloat() / (n - 1) - 0.5f)
+                val angle = frac * totalAngle
+                val x = cx + kotlin.math.sin(angle) * radius
+                val y = cy - kotlin.math.cos(angle) * radius + radius + lineY
+                val saveCount = canvas.save()
+                canvas.rotate(Math.toDegrees(angle.toDouble()).toFloat(), x, y)
+                canvas.drawText(ch, x, y, paint)
+                canvas.restore(saveCount)
+            }
+            lineY += paint.textSize * 1.3f + lineSpacing
+        }
+        return bmp
     }
 
     private fun buildLogoObject() {
@@ -1403,6 +1481,20 @@ class MainActivity : Activity(), SceneTouchListener {
                 val h = o.bitmap.height
                 val pixels = IntArray(w * h)
                 o.bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+                if (shadowMode == 4) {
+                    // 3D shadow approximation (same layered extrusion as the preview).
+                    for (layer in 1..6) {
+                        val a = (100 - layer * 10).coerceAtLeast(20)
+                        val spixels = IntArray(w * h)
+                        for (i in pixels.indices) spixels[i] = ((Color.alpha(pixels[i]) * a / 255) shl 24)
+                        val shadow = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                        shadow.setPixels(spixels, 0, w, 0, 0, w, h)
+                        val blurred = blurBitmap(shadow, 16)
+                        val scaledShadow = Bitmap.createScaledBitmap(blurred, max(1, (o.w() * sx).toInt()), max(1, (o.h() * sy).toInt()), true)
+                        val off = layer * 6f + shadowMove
+                        canvas.drawBitmap(scaledShadow, (o.x + off) * sx, (o.y + off) * sy, null)
+                    }
+                } else {
                 val alphaScale = when (shadowMode) { 2 -> 140; 3 -> 110; else -> 90 }
                 val spixels = IntArray(w * h)
                 for (i in pixels.indices) spixels[i] = ((Color.alpha(pixels[i]) * alphaScale / 255) shl 24)
@@ -1414,6 +1506,7 @@ class MainActivity : Activity(), SceneTouchListener {
                 val blurred = blurBitmap(shadow, factor)
                 val scaledShadow = Bitmap.createScaledBitmap(blurred, max(1, (o.w() * sx).toInt()), max(1, (o.h() * sy).toInt()), true)
                 canvas.drawBitmap(scaledShadow, (o.x + offX) * sx, (o.y + offY) * sy, null)
+                }
             }
             val scaled = Bitmap.createScaledBitmap(o.bitmap, max(1, (o.w() * sx).toInt()), max(1, (o.h() * sy).toInt()), true)
             canvas.drawBitmap(scaled, o.x * sx, o.y * sy, perObjectPaint(o))
@@ -1468,7 +1561,24 @@ class MainActivity : Activity(), SceneTouchListener {
                     val mask = autoRemoveMask(main.orig)
                     applyMaskToBitmap(main.bitmap, main.orig, mask)
                 }
-                val comp = composite(true) ?: continue
+                // Batch resize modes (v4): Fit keeps the v3 behaviour
+                // (composite scaled to the requested size). Fill composites
+                // at cover size, then centre-crops to the requested size.
+                // Expand composites at fit size, then pads to the requested
+                // size with the current background colour.
+                val reqW = exportW
+                val reqH = exportH
+                if (batchResizeMode != 0) {
+                    val cw = sceneView.canvasW.toFloat()
+                    val ch = sceneView.canvasH.toFloat()
+                    val scale = if (batchResizeMode == 1) max(reqW / cw, reqH / ch) else min(reqW / cw, reqH / ch)
+                    exportW = (cw * scale).toInt().coerceAtLeast(1)
+                    exportH = (ch * scale).toInt().coerceAtLeast(1)
+                }
+                val rawComp = composite(true)
+                exportW = reqW
+                exportH = reqH
+                val comp = rawComp?.let { applyBatchResizeMode(it, reqW, reqH) } ?: continue
                 val name = "PhotoCut_batch_" + (index + 1) + "_" + System.currentTimeMillis() + ".png"
                 val values = ContentValues()
                 values.put(MediaStore.Images.Media.DISPLAY_NAME, name)
@@ -1508,6 +1618,49 @@ class MainActivity : Activity(), SceneTouchListener {
         return obj
     }
 
+    /** Offsets inside a circle of the given radius (disc kernel). */
+    private fun discOffsets(r: Int): List<Pair<Int, Int>> {
+        val out = mutableListOf<Pair<Int, Int>>()
+        for (dy in -r..r) for (dx in -r..r) {
+            if (dx * dx + dy * dy <= r * r) out.add(Pair(dx, dy))
+        }
+        return out
+    }
+
+    /** Offsets inside a hexagon of the given radius (axial-coordinate hex). */
+    private fun hexOffsets(r: Int): List<Pair<Int, Int>> {
+        val out = mutableListOf<Pair<Int, Int>>()
+        for (dy in -r..r) for (dx in -r..r) {
+            val dz = -dx - dy
+            if (maxOf(kotlin.math.abs(dx), kotlin.math.abs(dy), kotlin.math.abs(dz)) <= r) out.add(Pair(dx, dy))
+        }
+        return out
+    }
+
+    /** Average each pixel over the given kernel offsets (edge-clamped). */
+    private fun kernelBlur(src: Bitmap, offsets: List<Pair<Int, Int>>): Bitmap {
+        val w = src.width; val h = src.height
+        val pixels = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        val result = IntArray(w * h)
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                var sr = 0; var sg = 0; var sb = 0; var sa = 0
+                for ((dx, dy) in offsets) {
+                    val nx = (x + dx).coerceIn(0, w - 1)
+                    val ny = (y + dy).coerceIn(0, h - 1)
+                    val c = pixels[ny * w + nx]
+                    sr += Color.red(c); sg += Color.green(c); sb += Color.blue(c); sa += Color.alpha(c)
+                }
+                val n = offsets.size
+                result[y * w + x] = (sa / n shl 24) or (sr / n shl 16) or (sg / n shl 8) or (sb / n)
+            }
+        }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(result, 0, w, 0, 0, w, h)
+        return out
+    }
+
     private fun applyBlurToSelected() {
         val obj = requireSelected() ?: return
         if (pendingBlur == 0) {
@@ -1525,6 +1678,8 @@ class MainActivity : Activity(), SceneTouchListener {
                 val small = Bitmap.createScaledBitmap(src, max(1, src.width / 12), max(1, src.height / 12), false)
                 Bitmap.createScaledBitmap(small, src.width, src.height, false)
             }
+            5 -> kernelBlur(src, discOffsets(3)) // disc blur approximation: circular kernel
+            6 -> kernelBlur(src, hexOffsets(3)) // hexagonal blur approximation
             else -> { // motion approximation: horizontal average, radius 6, step 2
                 val w = src.width; val h = src.height
                 val pixels = IntArray(w * h)
@@ -1551,6 +1706,181 @@ class MainActivity : Activity(), SceneTouchListener {
         obj.bitmap = out
         sceneView.invalidate()
         statusText.text = "Blur applied to the selected object."
+    }
+
+    // ---- v4: curvature, perspective, halftone, line-screen (approximations) ----
+
+    private fun applyCurveToSelected() {
+        val obj = requireSelected() ?: return
+        if (obj.kind == "TEXT" && obj.textContent != null) {
+            val curved = buildCurvedTextBitmap(obj.textContent!!, curveAmount)
+            obj.bitmap = curved
+            obj.orig = curved.copy(Bitmap.Config.ARGB_8888, true)
+            sceneView.invalidate()
+            statusText.text = "Text curve applied (arc approximation)."
+            return
+        }
+        // Photo bend approximation: sine-wave vertical displacement.
+        val src = obj.bitmap
+        val w = src.width; val h = src.height
+        val pixels = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        val result = IntArray(w * h)
+        val amp = (curveAmount - 50) * h / 500f // -0.1h .. +0.1h
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val shift = (amp * kotlin.math.sin(Math.PI * x / max(1, w))).toInt()
+                val sy = (y - shift).coerceIn(0, h - 1)
+                result[y * w + x] = pixels[sy * w + x]
+            }
+        }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(result, 0, w, 0, 0, w, h)
+        obj.bitmap = out
+        sceneView.invalidate()
+        statusText.text = "Curve applied (bend approximation)."
+    }
+
+    private fun applyPerspectiveToSelected(horizontal: Boolean) {
+        val obj = requireSelected() ?: return
+        val src = obj.bitmap
+        val w = src.width; val h = src.height
+        val pixels = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        val result = IntArray(w * h)
+        // Trapezoid approximation: one edge is 25% narrower than the other.
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val sx: Int
+                val sy: Int
+                if (horizontal) {
+                    val t = y.toFloat() / max(1, h)
+                    val scale = 0.75f + 0.25f * t // top narrower, bottom full
+                    sx = ((x - w / 2f) / scale + w / 2f).toInt().coerceIn(0, w - 1)
+                    sy = y
+                } else {
+                    val t = x.toFloat() / max(1, w)
+                    val scale = 0.75f + 0.25f * t // left narrower, right full
+                    sx = x
+                    sy = ((y - h / 2f) / scale + h / 2f).toInt().coerceIn(0, h - 1)
+                }
+                result[y * w + x] = pixels[sy * w + sx]
+            }
+        }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(result, 0, w, 0, 0, w, h)
+        obj.bitmap = out
+        sceneView.invalidate()
+        statusText.text = "Perspective applied (" + (if (horizontal) "horizontal" else "vertical") + ", trapezoid approximation)."
+    }
+
+    private fun applyHalftoneToSelected() {
+        val obj = requireSelected() ?: return
+        val src = obj.bitmap
+        val w = src.width; val h = src.height
+        val pixels = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        val result = IntArray(w * h) { (255 shl 24) or 0x00FFFFFF }
+        val cell = 10
+        var cy = 0
+        while (cy < h) {
+            var cx = 0
+            while (cx < w) {
+                var sr = 0; var sg = 0; var sb = 0; var sa = 0; var n = 0
+                for (y in cy until min(h, cy + cell)) {
+                    for (x in cx until min(w, cx + cell)) {
+                        val c = pixels[y * w + x]
+                        sr += Color.red(c); sg += Color.green(c); sb += Color.blue(c); sa += Color.alpha(c); n++
+                    }
+                }
+                if (n > 0 && sa / n > 10) {
+                    val lum = (sr / n + sg / n + sb / n) / 3f
+                    val radius = ((1f - lum / 255f) * cell / 2f)
+                    val ccx = cx + cell / 2f
+                    val ccy = cy + cell / 2f
+                    val dotColor = (255 shl 24) or ((sr / n) shl 16) or ((sg / n) shl 8) or (sb / n)
+                    for (y in cy until min(h, cy + cell)) {
+                        for (x in cx until min(w, cx + cell)) {
+                            val dx = x - ccx; val dy = y - ccy
+                            if (dx * dx + dy * dy <= radius * radius) result[y * w + x] = dotColor
+                        }
+                    }
+                }
+                cx += cell
+            }
+            cy += cell
+        }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(result, 0, w, 0, 0, w, h)
+        obj.bitmap = out
+        sceneView.invalidate()
+        statusText.text = "Halftone applied (dot pattern approximation)."
+    }
+
+    private fun applyLineScreenToSelected() {
+        val obj = requireSelected() ?: return
+        val src = obj.bitmap
+        val w = src.width; val h = src.height
+        val pixels = IntArray(w * h)
+        src.getPixels(pixels, 0, w, 0, 0, w, h)
+        val result = IntArray(w * h) { (255 shl 24) or 0x00FFFFFF }
+        val band = 8
+        var y0 = 0
+        while (y0 < h) {
+            var sr = 0; var sg = 0; var sb = 0; var sa = 0; var n = 0
+            for (y in y0 until min(h, y0 + band)) {
+                for (x in 0 until w) {
+                    val c = pixels[y * w + x]
+                    sr += Color.red(c); sg += Color.green(c); sb += Color.blue(c); sa += Color.alpha(c); n++
+                }
+            }
+            if (n > 0 && sa / n > 10) {
+                val lum = (sr / n + sg / n + sb / n) / 3f
+                val thickness = ((1f - lum / 255f) * band).toInt().coerceIn(0, band)
+                val dotColor = (255 shl 24) or ((sr / n) shl 16) or ((sg / n) shl 8) or (sb / n)
+                for (y in y0 until min(h, y0 + thickness)) {
+                    for (x in 0 until w) result[y * w + x] = dotColor
+                }
+            }
+            y0 += band
+        }
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        out.setPixels(result, 0, w, 0, 0, w, h)
+        obj.bitmap = out
+        sceneView.invalidate()
+        statusText.text = "Line screen applied (line pattern approximation)."
+    }
+
+    /** Batch resize post-process: comp is the composite at the requested
+     *  size (fit/stretch). Fit: uniform scale inside, centred on the
+     *  current background. Fill: uniform scale to cover, centre-cropped.
+     *  Expand: pad the composite to the requested size with the background. */
+    private fun applyBatchResizeMode(comp: Bitmap, reqW: Int, reqH: Int): Bitmap {
+        if (batchResizeMode == 0) return comp
+        val bg = if (bgMode == 0) Color.TRANSPARENT else if (bgMode == 1) solidColor else Color.WHITE
+        if (batchResizeMode == 2) {
+            // Expand: pad (comp already fits the requested size in one
+            // dimension when its aspect differs; pad the other).
+            val out = Bitmap.createBitmap(reqW, reqH, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(out)
+            if (bg != Color.TRANSPARENT) canvas.drawColor(bg)
+            canvas.drawBitmap(comp, (reqW - comp.width) / 2f, (reqH - comp.height) / 2f, null)
+            return out
+        }
+        // Fill: centre-crop the composite to the requested aspect, then scale.
+        val targetAspect = reqW.toFloat() / max(1, reqH)
+        val compAspect = comp.width.toFloat() / max(1, comp.height)
+        val cropped: Bitmap
+        if (compAspect > targetAspect) {
+            val cw = (comp.height * targetAspect).toInt().coerceAtLeast(1)
+            val left = (comp.width - cw) / 2
+            cropped = Bitmap.createBitmap(comp, left, 0, cw, comp.height)
+        } else {
+            val ch = (comp.width / targetAspect).toInt().coerceAtLeast(1)
+            val top = (comp.height - ch) / 2
+            cropped = Bitmap.createBitmap(comp, 0, top, comp.width, ch)
+        }
+        return Bitmap.createScaledBitmap(cropped, reqW, reqH, true)
     }
 
     private fun applyPosterizeToSelected() {
