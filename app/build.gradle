@@ -1,0 +1,44 @@
+// PhotoCut Offline app module.
+// MainActivity.kt imports ONLY android.* framework classes, java.util and
+// kotlin.math. There are NO AndroidX imports, NO network imports and NO
+// AI/ML imports, so this module deliberately declares NO dependencies beyond
+// what the kotlin-android plugin supplies (Kotlin stdlib). Do NOT add
+// network, AI/ML, or analytics dependencies: the app must stay fully offline.
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+
+android {
+    namespace 'com.technoon.photocut'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.technoon.photocut'
+        minSdk 21
+        targetSdk 34
+        versionCode 2
+        versionName '2.0'
+    }
+
+    buildTypes {
+        debug {
+            // Standard debug signing (debug keystore supplied by the build
+            // environment). No release signing config is included here.
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    // Intentionally empty: see the header comment above.
+}
