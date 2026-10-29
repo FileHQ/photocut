@@ -48,6 +48,7 @@ class SceneObj(
     var blendMode = 0 // 0 normal, 1 multiply, 2 screen, 3 darken, 4 lighten
     var locked = false
     var visible = true
+    var textContent: String? = null // for TEXT objects: the text, so curve/line-spacing can rebuild it
     fun w(): Float = bitmap.width * scale
     fun h(): Float = bitmap.height * scale
     fun contains(cx: Float, cy: Float): Boolean =
@@ -368,6 +369,22 @@ class SceneView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
         val h = o.bitmap.height
         val pixels = IntArray(w * h)
         o.bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+        if (shadowMode == 4) {
+            // 3D shadow approximation: several offset layers, each a little
+            // further out and a little fainter, so the shadow looks extruded.
+            for (layer in 1..6) {
+                val a = (100 - layer * 10).coerceAtLeast(20)
+                val spixels = IntArray(w * h)
+                for (i in pixels.indices) spixels[i] = ((Color.alpha(pixels[i]) * a / 255) shl 24)
+                val shadow = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                shadow.setPixels(spixels, 0, w, 0, 0, w, h)
+                val blurred = blurBitmap(shadow, 16)
+                val scaled = Bitmap.createScaledBitmap(blurred, max(1, o.w().toInt()), max(1, o.h().toInt()), true)
+                val off = layer * 6f + shadowMove
+                canvas.drawBitmap(scaled, o.x + off / o.scale, o.y + off / o.scale, null)
+            }
+            return
+        }
         val alphaScale = when (shadowMode) { 2 -> 140; 3 -> 110; else -> 90 }
         val spixels = IntArray(w * h)
         for (i in pixels.indices) spixels[i] = ((Color.alpha(pixels[i]) * alphaScale / 255) shl 24)
